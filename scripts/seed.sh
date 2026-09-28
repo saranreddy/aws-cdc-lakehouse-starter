@@ -217,28 +217,48 @@ if [ ! -x /opt/kafka/bin/kafka-topics.sh ] || [ ! -f /opt/kafka/libs/aws-msk-iam
     TEMP_DIR=$(mktemp -d)
     cd "$TEMP_DIR"
     
-    # Download Kafka with retry
+    # Download Kafka with retry (try dlcdn first, fallback to archive)
     KAFKA_VERSION="3.7.1"
-    KAFKA_URL="https://archive.apache.org/dist/kafka/${KAFKA_VERSION}/kafka_2.13-${KAFKA_VERSION}.tgz"
+    KAFKA_FILENAME="kafka_2.13-${KAFKA_VERSION}.tgz"
     KAFKA_SHA512="78e985235d245ba9e2951a82e723a62b8aba8b74a2c8376f7271906af715a36de9142c446096f13fd4bff3a4c10f1d080eb924e91e2256ec2db779906fd6737d"
     
-    echo "Downloading Kafka ${KAFKA_VERSION} (may take up to 30 minutes on slow connections)..."
+    echo "Downloading Kafka ${KAFKA_VERSION}..."
     MAX_RETRIES=3
     RETRY_COUNT=0
+    DOWNLOAD_SUCCESS=0
+    
+    # Try dlcdn.apache.org first (faster CDN)
     while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-        if curl -fsSL "$KAFKA_URL" -o kafka.tgz; then
-            echo "Download complete, verifying..."
+        echo "  Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES: Trying dlcdn.apache.org..."
+        if curl -fsSL -m 1200 "https://dlcdn.apache.org/kafka/${KAFKA_VERSION}/${KAFKA_FILENAME}" -o kafka.tgz 2>/dev/null; then
+            echo "  Download complete from dlcdn.apache.org"
+            DOWNLOAD_SUCCESS=1
             break
         fi
         RETRY_COUNT=$((RETRY_COUNT + 1))
-        if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-            echo "Download failed, retrying ($RETRY_COUNT/$MAX_RETRIES)..."
-            sleep 5
-        else
-            echo "Error: Failed to download Kafka after $MAX_RETRIES attempts"
-            exit 1
-        fi
+        [ $RETRY_COUNT -lt $MAX_RETRIES ] && sleep 5
     done
+    
+    # Fallback to archive.apache.org (slower but has older releases)
+    if [ $DOWNLOAD_SUCCESS -eq 0 ]; then
+        echo "  dlcdn.apache.org failed, trying archive.apache.org (may take 15-20 minutes)..."
+        RETRY_COUNT=0
+        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            echo "  Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES: Downloading..."
+            if curl -fsSL -m 1800 "https://archive.apache.org/dist/kafka/${KAFKA_VERSION}/${KAFKA_FILENAME}" -o kafka.tgz; then
+                echo "  Download complete from archive.apache.org"
+                DOWNLOAD_SUCCESS=1
+                break
+            fi
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            [ $RETRY_COUNT -lt $MAX_RETRIES ] && sleep 5
+        done
+    fi
+    
+    if [ $DOWNLOAD_SUCCESS -eq 0 ]; then
+        echo "Error: Failed to download Kafka after trying both mirrors"
+        exit 1
+    fi
     
     # Verify SHA512 (AL2023 has sha512sum)
     ACTUAL_SHA512=$(sha512sum kafka.tgz | cut -d' ' -f1)
@@ -255,13 +275,30 @@ if [ ! -x /opt/kafka/bin/kafka-topics.sh ] || [ ! -f /opt/kafka/libs/aws-msk-iam
     # Extract to temp location
     tar -xzf kafka.tgz
     
-    # Install aws-msk-iam-auth
+    # Install aws-msk-iam-auth (try GitHub releases, fallback to Maven Central)
     IAM_AUTH_VERSION="1.1.9"
-    IAM_AUTH_URL="https://github.com/aws/aws-msk-iam-auth/releases/download/v${IAM_AUTH_VERSION}/aws-msk-iam-auth-${IAM_AUTH_VERSION}-all.jar"
     IAM_AUTH_SHA256="16b3fbb2fbc7f0a5e60f2b8152b85c4892ed2459595a6400bc29126d98dcdf78"
     
     echo "Downloading aws-msk-iam-auth ${IAM_AUTH_VERSION}..."
-    curl -fsSL "$IAM_AUTH_URL" -o aws-msk-iam-auth.jar
+    DOWNLOAD_SUCCESS=0
+    
+    # Try GitHub releases first
+    if curl -fsSL "https://github.com/aws/aws-msk-iam-auth/releases/download/v${IAM_AUTH_VERSION}/aws-msk-iam-auth-${IAM_AUTH_VERSION}-all.jar" -o aws-msk-iam-auth.jar 2>/dev/null; then
+        echo "  Downloaded from GitHub releases"
+        DOWNLOAD_SUCCESS=1
+    else
+        # Fallback to Maven Central
+        echo "  GitHub failed, trying Maven Central..."
+        if curl -fsSL "https://repo1.maven.org/maven2/software/amazon/msk/aws-msk-iam-auth/${IAM_AUTH_VERSION}/aws-msk-iam-auth-${IAM_AUTH_VERSION}-all.jar" -o aws-msk-iam-auth.jar; then
+            echo "  Downloaded from Maven Central"
+            DOWNLOAD_SUCCESS=1
+        fi
+    fi
+    
+    if [ $DOWNLOAD_SUCCESS -eq 0 ]; then
+        echo "Error: Failed to download aws-msk-iam-auth"
+        exit 1
+    fi
     
     # Verify SHA256
     ACTUAL_SHA256=$(sha256sum aws-msk-iam-auth.jar | cut -d' ' -f1)
@@ -348,8 +385,9 @@ fi
 echo "Command ID: $COMMAND_ID"
 echo "Waiting for command to complete (up to 20 minutes for Kafka download)..."
 
-# Poll for command status
+# Poll for command status using wall-clock time
 MAX_WAIT=1200
+START_TIME=$(date +%s)
 ELAPSED=0
 while [ $ELAPSED -lt $MAX_WAIT ]; do
     STATUS=$(aws ssm get-command-invocation \
@@ -387,7 +425,7 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
     
     echo -n "."
     sleep 5
-    ELAPSED=$((ELAPSED + 5))
+    ELAPSED=$(($(date +%s) - START_TIME))
 done
 
 if [ $ELAPSED -ge $MAX_WAIT ]; then

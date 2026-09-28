@@ -376,6 +376,7 @@ resource "aws_iam_role_policy_attachment" "bastion_ssm" {
 }
 
 # Allow bastion to create and describe Kafka topics
+# Used by seed.sh kafka-topics.sh --create, --describe, --list
 resource "aws_iam_role_policy" "bastion_kafka" {
   name = "${var.name_prefix}-bastion-kafka"
   role = aws_iam_role.bastion.id
@@ -396,6 +397,7 @@ resource "aws_iam_role_policy" "bastion_kafka" {
         Action = [
           "kafka-cluster:CreateTopic",
           "kafka-cluster:DescribeTopic",
+          "kafka-cluster:DescribeTopicDynamicConfiguration",
           "kafka-cluster:ReadData",
           "kafka-cluster:WriteData"
         ]
@@ -431,7 +433,7 @@ resource "aws_instance" "bastion" {
 
   user_data = <<-EOF
     #!/bin/bash
-    dnf install -y java-17-amazon-corretto-headless postgresql15
+    dnf install -y java-17-amazon-corretto-headless
   EOF
 
   metadata_options {

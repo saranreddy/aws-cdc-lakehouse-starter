@@ -352,6 +352,13 @@ resource "aws_mskconnect_connector" "iceberg_sink" {
     "iceberg.control.commit.interval-ms" = "60000"
     "iceberg.control.commit.threads"     = "1"
 
+    # Control topic Kafka client IAM auth (explicit, may not inherit from worker)
+    "iceberg.kafka.bootstrap.servers"                  = var.msk_bootstrap_brokers
+    "iceberg.kafka.security.protocol"                  = "SASL_SSL"
+    "iceberg.kafka.sasl.mechanism"                     = "AWS_MSK_IAM"
+    "iceberg.kafka.sasl.jaas.config"                   = "software.amazon.msk.auth.iam.IAMLoginModule required;"
+    "iceberg.kafka.sasl.client.callback.handler.class" = "software.amazon.msk.auth.iam.IAMClientCallbackHandler"
+
     # Debezium transform
     "transforms"                        = "debezium"
     "transforms.debezium.type"          = "io.tabular.iceberg.connect.transforms.DebeziumTransform"

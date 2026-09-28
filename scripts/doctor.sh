@@ -104,10 +104,10 @@ check_quota() {
     fi
 }
 
-# Verified quota codes (2026-09-28)
+# Best-effort quota codes (not all independently verified)
 check_quota "kafka" "L-6C9C37C4" "MSK clusters per region" 1
 check_quota "rds" "L-7B6409FD" "DB instances" 1
-check_quota "vpc" "L-29B6F2EB" "Interface VPC endpoints per VPC" 8 || QUOTA_WARNINGS=$((QUOTA_WARNINGS + 1))
+check_quota "vpc" "L-29B6F2EB" "Interface VPC endpoints per VPC" 8
 check_quota "ec2" "L-1216C47A" "Running On-Demand Standard instances" 1
 echo ""
 

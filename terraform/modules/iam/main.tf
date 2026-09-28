@@ -53,7 +53,9 @@ resource "aws_iam_role_policy" "debezium_connector" {
         Effect = "Allow"
         Action = [
           "kafka-cluster:CreateTopic",
+          "kafka-cluster:AlterTopic",
           "kafka-cluster:DescribeTopic",
+          "kafka-cluster:DescribeTopicDynamicConfiguration",
           "kafka-cluster:WriteData",
           "kafka-cluster:WriteDataIdempotently",
           "kafka-cluster:ReadData"
@@ -173,7 +175,9 @@ resource "aws_iam_role_policy" "iceberg_connector" {
         Effect = "Allow"
         Action = [
           "kafka-cluster:CreateTopic",
+          "kafka-cluster:AlterTopic",
           "kafka-cluster:DescribeTopic",
+          "kafka-cluster:DescribeTopicDynamicConfiguration",
           "kafka-cluster:WriteData",
           "kafka-cluster:WriteDataIdempotently",
           "kafka-cluster:ReadData"

@@ -173,7 +173,7 @@ End-to-end verification:
 3. Updates the row and verifies the update in Athena
 4. Deletes the row and verifies the deletion in Athena
 
-Reports measured latency for each operation.
+Reports expected latency based on the Kafka Connect flush interval.
 
 **Expected duration**: 5-10 minutes (depends on Kafka Connect flush intervals and Athena query time)
 
@@ -286,7 +286,7 @@ See `docs/runbooks/` for operational procedures:
 
 ### Connector Versions
 
-- **Debezium 2.7.3.Final**: Java 11+ compatible, works with MSK Connect runtime 3.7.x (Kafka Connect 3.7.x, Java 17)
+- **Debezium 2.7.3.Final**: Java 11+ compatible, tested with Java 17 runtime in CI (not yet live-tested)
 - **Tabular Iceberg Kafka Connect 0.6.19**: Last stable release before Tabular deprecated the repository in favor of Apache Iceberg's official connector
 
 **Note**: MSK Connect 3.7.x runtime uses Java 17. Debezium 2.7.3 (Java 11+) runs successfully. Debezium 3.x (Java 17+) would be version-aligned but is not tested in this starter.
