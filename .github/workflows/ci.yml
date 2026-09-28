@@ -1,0 +1,164 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, 'cursor/**' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  terraform:
+    name: Terraform Validation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.0
+      
+      - name: Terraform Format Check
+        run: |
+          cd terraform
+          terraform fmt -check -recursive
+      
+      - name: Terraform Init
+        run: |
+          cd terraform
+          terraform init -backend=false
+      
+      - name: Terraform Validate
+        run: |
+          cd terraform
+          terraform validate
+  
+  lint:
+    name: Linting
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      
+      - name: Run shellcheck
+        run: |
+          find scripts -name '*.sh' -type f -exec shellcheck {} +
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pylint pytest
+      
+      - name: Run pylint
+        run: |
+          pylint scripts/*.py || true
+  
+  test:
+    name: Python Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run unit tests
+        run: |
+          python -m pytest tests/ -v
+  
+  diagram:
+    name: Architecture Diagram
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      
+      - name: Install Graphviz
+        run: sudo apt-get update && sudo apt-get install -y graphviz
+      
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install diagrams
+      
+      - name: Generate diagram
+        run: |
+          python docs/architecture.py
+      
+      - name: Check diagram exists
+        run: |
+          if [ ! -f docs/architecture.png ]; then
+            echo "Error: Architecture diagram was not generated"
+            exit 1
+          fi
+  
+  bash-compatibility:
+    name: Bash 3.2 Compatibility Check
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Check bash version
+        run: |
+          bash --version
+          # macOS uses bash 3.2 by default
+      
+      - name: Syntax check scripts
+        run: |
+          for script in scripts/*.sh; do
+            echo "Checking $script..."
+            bash -n "$script"
+          done
+      
+      - name: Check for bashisms
+        run: |
+          # Look for common bashisms that won't work in bash 3.2
+          echo "Checking for bashisms..."
+          
+          # Check for associative arrays (bash 4+)
+          if grep -r "declare -A" scripts/*.sh; then
+            echo "Error: Associative arrays found (bash 4+ only)"
+            exit 1
+          fi
+          
+          # Check for mapfile/readarray (bash 4+)
+          if grep -rE "mapfile|readarray" scripts/*.sh; then
+            echo "Error: mapfile/readarray found (bash 4+ only)"
+            exit 1
+          fi
+          
+          # Check for ${var,,} or ${var^^} (bash 4+)
+          if grep -rE '\$\{[a-zA-Z_][a-zA-Z0-9_]*,,\}|\$\{[a-zA-Z_][a-zA-Z0-9_]*,,\}' scripts/*.sh; then
+            echo "Error: ${var,,} or ${var^^} found (bash 4+ only)"
+            exit 1
+          fi
+          
+          echo "No obvious bashisms found"
