@@ -291,11 +291,15 @@ See `docs/runbooks/` for operational procedures:
 
 **Note**: MSK Connect 3.7.x runtime uses Java 17. Debezium 2.7.3 (Java 11+) runs successfully. Debezium 3.x (Java 17+) would be version-aligned but is not tested in this starter.
 
-### msk-config-providers JAR
+### AWS Secrets Manager Config Provider
 
-**WARNING**: The `msk-config-providers-2.0.1-all.jar` artifact referenced in the Terraform code could not be independently verified during this review. The Maven Central and GitHub URLs attempted returned 404. The SHA256 in the code is not verified.
+**aws-samples/msk-config-providers 0.4.0**:
+- URL: `https://github.com/aws-samples/msk-config-providers/releases/download/r0.4.0/msk-config-providers-0.4.0-all.jar`
+- SHA256: `45dc671c2cec8412c436371abddff644598d00035a73487ab6db191db3563911` (verified)
+- Class: `com.amazonaws.kafka.config.providers.SecretsManagerConfigProvider`
+- Syntax: `${secretsmanager:secret-name:key}`
 
-**Recommendation for production**: Independently verify the config-provider JAR source and SHA256, or use an alternative Secrets Manager config provider with a verified artifact.
+**Version choice**: 0.4.0 (not 0.5.0) because 0.5.0 targets Kafka 3.9+ and MSK Connect runtime 3.7.x uses Kafka 3.7.x.
 
 ### Schema Changes
 
@@ -348,7 +352,7 @@ The bastion is a t3.micro instance in a public subnet with a public IP. SSM Sess
 
 - **RDS password**: Managed by RDS and stored in Secrets Manager (no plaintext in Terraform state)
 - **Kafka authentication**: IAM-based (no plaintext credentials)
-- **Connector credentials**: MSK Connect uses the Secrets Manager config provider to fetch the RDS password at runtime (**WARNING**: config provider JAR not independently verified)
+- **Connector credentials**: MSK Connect uses the Secrets Manager config provider (aws-samples/msk-config-providers 0.4.0) to fetch the RDS password at runtime
 - **S3 encryption**: SSE-S3 (AWS-managed keys)
 - **VPC**: All data services (RDS, MSK, MSK Connect) are in private subnets with no direct internet access
 - **Security groups**: Ingress limited to required ports and source security groups

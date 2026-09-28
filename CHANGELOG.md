@@ -26,7 +26,7 @@ Initial release of AWS CDC Lakehouse Starter. This is a **learning reference** d
     - Native `pgoutput` replication
     - JSON converters
     - Topic auto-creation via Kafka Connect topic creation config
-    - Secrets Manager config provider for RDS password (**WARNING**: config provider JAR not independently verified)
+    - Secrets Manager config provider (aws-samples/msk-config-providers 0.4.0) for RDS password
   - **Tabular Iceberg Kafka Connect sink** 0.6.19
     - Last stable release from Tabular (repository deprecated; Apache Iceberg official connector recommended for future)
     - Upsert mode enabled
@@ -113,7 +113,7 @@ Initial release of AWS CDC Lakehouse Starter. This is a **learning reference** d
 ### Known Limitations
 
 - **MSK Connect 3.7.x runtime**: Java 17, Kafka 3.7.x
-- **msk-config-providers JAR**: Could not independently verify artifact URL or SHA256 (404 on attempted Maven/GitHub URLs)
+- **msk-config-providers**: aws-samples/msk-config-providers 0.4.0 (Kafka 3.7.x compatible; 0.5.0 targets Kafka 3.9+)
 - **Single account**: No environment separation
 - **No schema registry**: Plain JSON events without schema governance
 - **IAM scoping**: Scoped to cluster/topics/buckets but not least-privilege (e.g., VPC permissions are `*`)

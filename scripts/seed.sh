@@ -186,10 +186,21 @@ if [ ! -d /opt/kafka ]; then
     cd /tmp
     KAFKA_VERSION="3.7.1"
     KAFKA_URL="https://archive.apache.org/dist/kafka/${KAFKA_VERSION}/kafka_2.13-${KAFKA_VERSION}.tgz"
-    KAFKA_SHA512="d74ba8c384eacd8b33dbfd9eb2ee7976c8b1be23be6f7c33c3f91443c6ca0ae77f21ccf7c8e68e4e34a13c2d1e78d1607f5c79a7b5b1ddb5e28f8e8a8f8e8c8e8"
+    KAFKA_SHA512="78e985235d245ba9e2951a82e723a62b8aba8b74a2c8376f7271906af715a36de9142c446096f13fd4bff3a4c10f1d080eb924e91e2256ec2db779906fd6737d"
     
     curl -fsSL "$KAFKA_URL" -o kafka.tgz
-    # Skip SHA verification for now - proceed if download succeeded
+    
+    # Verify SHA512
+    ACTUAL_SHA512=$(shasum -a 512 kafka.tgz | cut -d' ' -f1)
+    echo "Expected SHA512: $KAFKA_SHA512"
+    echo "Actual SHA512:   $ACTUAL_SHA512"
+    
+    if [ "$ACTUAL_SHA512" != "$KAFKA_SHA512" ]; then
+      echo "Error: Kafka SHA512 mismatch!"
+      exit 1
+    fi
+    
+    echo "Kafka SHA512 verified successfully"
     tar -xzf kafka.tgz
     sudo mv kafka_2.13-${KAFKA_VERSION} /opt/kafka
     sudo chmod -R 755 /opt/kafka

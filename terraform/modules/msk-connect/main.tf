@@ -37,15 +37,24 @@ resource "null_resource" "fetch_debezium_plugin" {
       tar -xzf debezium-connector-postgres.tar.gz
       
       # Download AWS Secrets Manager config provider
-      CONFIG_PROVIDER_VERSION="2.0.1"
-      CONFIG_PROVIDER_URL="https://repo1.maven.org/maven2/com/amazonaws/msk-config-providers/$CONFIG_PROVIDER_VERSION/msk-config-providers-$CONFIG_PROVIDER_VERSION-all.jar"
-      CONFIG_PROVIDER_SHA256="d52eb1ab7b9f3829fd73a00dd3e8ab4f62a8d92fcec7d4d8b4f1b56a1b7e8b1c"
+      CONFIG_PROVIDER_VERSION="0.4.0"
+      CONFIG_PROVIDER_URL="https://github.com/aws-samples/msk-config-providers/releases/download/r0.4.0/msk-config-providers-0.4.0-all.jar"
+      CONFIG_PROVIDER_SHA256="45dc671c2cec8412c436371abddff644598d00035a73487ab6db191db3563911"
       
       echo "Downloading AWS Config Providers $CONFIG_PROVIDER_VERSION..."
       curl -fsSL "$CONFIG_PROVIDER_URL" -o msk-config-providers.jar
       
-      # Note: SHA256 not verified as unable to confirm official hash
-      # Production use should verify this hash
+      # Verify SHA256
+      ACTUAL_SHA256=$(shasum -a 256 msk-config-providers.jar | cut -d' ' -f1)
+      echo "Expected SHA256: $CONFIG_PROVIDER_SHA256"
+      echo "Actual SHA256:   $ACTUAL_SHA256"
+      
+      if [ "$ACTUAL_SHA256" != "$CONFIG_PROVIDER_SHA256" ]; then
+        echo "Error: Config provider SHA256 mismatch!"
+        exit 1
+      fi
+      
+      echo "Config provider SHA256 verified successfully"
       
       # Add config provider to plugin
       mv msk-config-providers.jar debezium-connector-postgres/
@@ -326,10 +335,10 @@ resource "aws_mskconnect_connector" "iceberg_sink" {
     "iceberg.tables.default-id-columns" = "id"
 
     # Routing
-    "iceberg.tables.route-field"                                    = "_cdc.source.table"
-    "iceberg.table.${var.glue_database_name}.customers.route-regex"   = ".*customers"
-    "iceberg.table.${var.glue_database_name}.orders.route-regex"      = ".*orders"
-    "iceberg.table.${var.glue_database_name}.order_items.route-regex" = ".*order_items"
+    "iceberg.tables.route-field"                                      = "_cdc.source.table"
+    "iceberg.table.${var.glue_database_name}.customers.route-regex"   = "customers"
+    "iceberg.table.${var.glue_database_name}.orders.route-regex"      = "orders"
+    "iceberg.table.${var.glue_database_name}.order_items.route-regex" = "order_items"
 
     # Catalog configuration (AWS Glue) - per Tabular 0.6.19 docs
     "iceberg.catalog.catalog-impl" = "org.apache.iceberg.aws.glue.GlueCatalog"
