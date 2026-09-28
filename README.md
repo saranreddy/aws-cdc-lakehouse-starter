@@ -107,7 +107,7 @@ Iceberg v2 supports **row-level deletes and updates** via delete files, which th
 **MSK Connect runtime 3.7.x uses Kafka 3.7.x and Java 17** ([AWS MSK Connect runtimes](https://docs.aws.amazon.com/msk/latest/developerguide/msk-connect-workers.html), 2026-09-28). The Debezium 3.x series targets Java 17+ and Kafka Connect 3.x, so technically Debezium 3.x should work. However, this starter uses:
 
 - **Debezium 2.7.3.Final**: Latest 2.7.x release, stable with Postgres connector on Java 11+ and Kafka Connect 2.x/3.x
-- **Tabular Iceberg 0.6.19**: Last stable release from Tabular before the repository was deprecated in favor of Apache Iceberg's official connector (not yet field-tested for this stack)
+- **Tabular Iceberg 0.6.19**: Final release of the Tabular connector, which was deprecated in favor of Apache Iceberg's official Kafka Connect sink.
 
 **Honest rationale**: Debezium 2.7.3 is a conservative choice. Debezium 3.x would likely work but hasn't been tested in this starter. For production, evaluate Debezium 3.x or the Apache Iceberg Kafka Connect project.
 

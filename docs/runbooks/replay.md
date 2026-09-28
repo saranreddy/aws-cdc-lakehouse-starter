@@ -155,12 +155,7 @@ Re-run the connector Terraform:
 ```bash
 # From repo root
 make apply-connectors AUTO_APPROVE=1
-
-# Or run terraform directly
-terraform -chdir=terraform apply -target=module.msk_connect -auto-approve
 ```
-
-Or recreate via `make apply-connectors`.
 
 The connector will:
 - Re-consume all events from the beginning of each topic

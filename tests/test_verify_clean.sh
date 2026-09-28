@@ -4,6 +4,9 @@
 
 set -e
 
+# Resolve repo root relative to this script
+REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+
 TEST_DIR=$(mktemp -d)
 trap "rm -rf '$TEST_DIR'" EXIT
 
@@ -88,7 +91,7 @@ echo 'region = "us-east-1"' > "$TEST_DIR/tf_dir/terraform.tfvars"
 echo "--- Test (a): Empty results ---"
 export TEST_CASE=clean
 cd "$TEST_DIR"
-OUTPUT=$(bash /workspace/scripts/verify-clean.sh 2>&1 || true)
+OUTPUT=$(bash "$REPO_ROOT/scripts/verify-clean.sh" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "Clean:"; then
     if echo "$OUTPUT" | grep -q "Clean: No billable resources found"; then
         echo "PASS: Exits 0 and prints 'Clean'"
@@ -107,7 +110,7 @@ echo ""
 echo "--- Test (b): Stderr warning (rc 0, empty result) ---"
 export TEST_CASE=warning
 cd "$TEST_DIR"
-OUTPUT=$(bash /workspace/scripts/verify-clean.sh 2>&1 || true)
+OUTPUT=$(bash "$REPO_ROOT/scripts/verify-clean.sh" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "Clean:"; then
     echo "PASS: Exits 0 and prints 'Clean' (warning ignored)"
 else
@@ -121,7 +124,7 @@ echo ""
 echo "--- Test (c): CLI error (rc 255) ---"
 export TEST_CASE=error
 cd "$TEST_DIR"
-OUTPUT=$(bash /workspace/scripts/verify-clean.sh 2>&1 || true)
+OUTPUT=$(bash "$REPO_ROOT/scripts/verify-clean.sh" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "ERROR: AWS CLI failed"; then
     if echo "$OUTPUT" | grep -q "InvalidClientTokenId"; then
         echo "PASS: Exits non-zero and prints error"
@@ -140,7 +143,7 @@ echo ""
 echo "--- Test (d): Leftover resource (S3 bucket) ---"
 export TEST_CASE=leftover
 cd "$TEST_DIR"
-OUTPUT=$(bash /workspace/scripts/verify-clean.sh 2>&1 || true)
+OUTPUT=$(bash "$REPO_ROOT/scripts/verify-clean.sh" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "cdc-lakehouse-data-abc123"; then
     if echo "$OUTPUT" | grep -q "FAILED:"; then
         echo "PASS: Exits non-zero and prints resource name"
@@ -159,7 +162,7 @@ echo ""
 echo "--- Test (e): No terraform outputs -> us-east-1 fallback ---"
 export TEST_CASE=no-outputs
 cd "$TEST_DIR"
-OUTPUT=$(bash /workspace/scripts/verify-clean.sh 2>&1 || true)
+OUTPUT=$(bash "$REPO_ROOT/scripts/verify-clean.sh" 2>&1 || true)
 if echo "$OUTPUT" | grep -q "Region: us-east-1"; then
     echo "PASS: Falls back to us-east-1"
 else

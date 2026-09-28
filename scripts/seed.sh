@@ -218,20 +218,21 @@ if [ ! -x /opt/kafka/bin/kafka-topics.sh ] || [ ! -f /opt/kafka/libs/aws-msk-iam
     cd "$TEMP_DIR"
     
     # Download Kafka with retry (try dlcdn first for 4.x, fallback to archive)
+    # Worst case time: 2 mirrors × 2 attempts × 300s + 2 jars × 2 mirrors × 120s + 4×5s backoff = 1700s
     KAFKA_VERSION="4.3.1"
     KAFKA_FILENAME="kafka_2.13-${KAFKA_VERSION}.tgz"
     KAFKA_SHA512="c7d7b2318cb51aa0c61d3246a51c349210073c5c9b754947ef965a439f2f939e8600f204e134a75ac31faf3829c9370960ef7c6a9886c8a1dbf0339a21f4c54c"
     
-    echo "Downloading Kafka ${KAFKA_VERSION} (requires Java 17, which is pre-installed)..."
-    MAX_RETRIES=3
+    echo "Downloading Kafka ${KAFKA_VERSION} (requires Java 17, which is installed via user_data)..."
+    CURL_TIMEOUT=300  # 5 minutes max per attempt
+    MAX_RETRIES=2
     RETRY_COUNT=0
     DOWNLOAD_SUCCESS=0
-    CURL_TIMEOUT=600  # 10 minutes per attempt
     
     # Try dlcdn.apache.org first (faster CDN, hosts current releases)
     while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
         echo "  Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES: Trying dlcdn.apache.org..."
-        if curl -fsSL -m $CURL_TIMEOUT "https://dlcdn.apache.org/kafka/${KAFKA_VERSION}/${KAFKA_FILENAME}" -o kafka.tgz 2>/dev/null; then
+        if curl --connect-timeout 20 -fsSL -m $CURL_TIMEOUT "https://dlcdn.apache.org/kafka/${KAFKA_VERSION}/${KAFKA_FILENAME}" -o kafka.tgz 2>/dev/null; then
             echo "  Download complete from dlcdn.apache.org"
             DOWNLOAD_SUCCESS=1
             break
@@ -244,20 +245,20 @@ if [ ! -x /opt/kafka/bin/kafka-topics.sh ] || [ ! -f /opt/kafka/libs/aws-msk-iam
     if [ $DOWNLOAD_SUCCESS -eq 0 ]; then
         echo "  dlcdn failed, trying downloads.apache.org..."
         RETRY_COUNT=0
-        while [ $RETRY_COUNT -lt 2 ]; do
-            echo "  Attempt $((RETRY_COUNT + 1))/2: Downloading..."
-            if curl -fsSL -m $CURL_TIMEOUT "https://downloads.apache.org/kafka/${KAFKA_VERSION}/${KAFKA_FILENAME}" -o kafka.tgz 2>/dev/null; then
+        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            echo "  Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES: Downloading..."
+            if curl --connect-timeout 20 -fsSL -m $CURL_TIMEOUT "https://downloads.apache.org/kafka/${KAFKA_VERSION}/${KAFKA_FILENAME}" -o kafka.tgz 2>/dev/null; then
                 echo "  Download complete from downloads.apache.org"
                 DOWNLOAD_SUCCESS=1
                 break
             fi
             RETRY_COUNT=$((RETRY_COUNT + 1))
-            [ $RETRY_COUNT -lt 2 ] && sleep 5
+            [ $RETRY_COUNT -lt $MAX_RETRIES ] && sleep 5
         done
     fi
     
     if [ $DOWNLOAD_SUCCESS -eq 0 ]; then
-        echo "Error: Failed to download Kafka after trying both mirrors"
+        echo "Error: Failed to download Kafka from both mirrors after retries"
         exit 1
     fi
     
