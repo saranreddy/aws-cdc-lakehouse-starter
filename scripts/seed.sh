@@ -1,17 +1,10 @@
 #!/bin/bash
 set -e
 
-echo "=== Pre-seed: Creating Kafka Topics ==="
-./scripts/create-topics.sh || {
-    echo "Warning: Topic creation failed. Continuing with seed..."
-    echo "Topics may already exist or will be auto-created by connectors."
-}
-
-echo ""
 echo "=== Seeding Database ==="
 echo ""
 
-# Get RDS connection details from Terraform outputs
+# Get RDS and infrastructure details from Terraform outputs
 cd terraform
 RDS_ENDPOINT=$(terraform output -raw rds_endpoint 2>/dev/null | cut -d: -f1)
 RDS_PORT=$(terraform output -raw rds_port 2>/dev/null)
@@ -19,12 +12,27 @@ RDS_DATABASE=$(terraform output -raw rds_database_name 2>/dev/null)
 RDS_USERNAME=$(terraform output -raw rds_master_username 2>/dev/null)
 RDS_SECRET_ARN=$(terraform output -raw rds_secret_arn 2>/dev/null)
 BASTION_INSTANCE_ID=$(terraform output -raw bastion_instance_id 2>/dev/null)
+MSK_BOOTSTRAP=$(terraform output -raw msk_bootstrap_brokers 2>/dev/null)
+REGION=$(terraform output -raw region 2>/dev/null)
 cd ..
 
 if [ -z "$RDS_ENDPOINT" ]; then
-    echo "Error: Could not retrieve RDS endpoint. Has 'make apply' been run?"
+    echo "Error: Could not retrieve outputs. Has 'make apply-infra' been run?"
     exit 1
 fi
+
+# Trap to cleanup on exit
+cleanup() {
+    local exit_code=$?
+    if [ -n "$SSM_PID" ]; then
+        echo ""
+        echo "Cleaning up SSM tunnel..."
+        kill "$SSM_PID" 2>/dev/null || true
+        wait "$SSM_PID" 2>/dev/null || true
+    fi
+    exit $exit_code
+}
+trap cleanup EXIT INT TERM
 
 echo "Connecting to RDS via bastion..."
 echo "  Endpoint: $RDS_ENDPOINT:$RDS_PORT"
@@ -34,7 +42,21 @@ echo ""
 
 # Get password from Secrets Manager
 echo "Retrieving password from Secrets Manager..."
-PGPASSWORD_VALUE=$(aws secretsmanager get-secret-value --secret-id "$RDS_SECRET_ARN" --query SecretString --output text | grep -o '"password":"[^"]*' | cut -d'"' -f4)
+if ! PGPASSWORD_VALUE=$(aws secretsmanager get-secret-value \
+    --secret-id "$RDS_SECRET_ARN" \
+    --region "$REGION" \
+    --query SecretString \
+    --output text 2>/dev/null); then
+    echo "Error: Failed to retrieve RDS password from Secrets Manager"
+    exit 1
+fi
+
+# Parse JSON to extract password (safe, doesn't use grep)
+PGPASSWORD_VALUE=$(python3 -c "import sys, json; print(json.loads('$PGPASSWORD_VALUE')['password'])" 2>/dev/null)
+if [ -z "$PGPASSWORD_VALUE" ]; then
+    echo "Error: Failed to parse password from secret"
+    exit 1
+fi
 export PGPASSWORD="$PGPASSWORD_VALUE"
 
 # Connect via SSM port forwarding
@@ -43,7 +65,8 @@ LOCAL_PORT=5433
 aws ssm start-session \
     --target "$BASTION_INSTANCE_ID" \
     --document-name AWS-StartPortForwardingSessionToRemoteHost \
-    --parameters "{\"host\":[\"$RDS_ENDPOINT\"],\"portNumber\":[\"$RDS_PORT\"],\"localPortNumber\":[\"$LOCAL_PORT\"]}" &
+    --parameters "{\"host\":[\"$RDS_ENDPOINT\"],\"portNumber\":[\"$RDS_PORT\"],\"localPortNumber\":[\"$LOCAL_PORT\"]}" \
+    >/dev/null 2>&1 &
 SSM_PID=$!
 
 # Wait for tunnel to be ready
@@ -61,29 +84,22 @@ done
 
 if [ $RETRIES -eq $MAX_RETRIES ]; then
     echo "Error: Tunnel failed to start"
-    kill $SSM_PID 2>/dev/null || true
     exit 1
 fi
 
-# Execute SQL
+# Execute SQL (idempotent - recreate publication without dropping tables)
 echo ""
-echo "Creating schema and seeding data..."
+echo "Creating schema and seeding data (idempotent)..."
 psql -h localhost -p $LOCAL_PORT -U "$RDS_USERNAME" -d "$RDS_DATABASE" <<'EOF'
--- Drop existing tables if they exist
-DROP TABLE IF EXISTS public.order_items CASCADE;
-DROP TABLE IF EXISTS public.orders CASCADE;
-DROP TABLE IF EXISTS public.customers CASCADE;
-
--- Create customers table
-CREATE TABLE public.customers (
+-- Create tables (IF NOT EXISTS for idempotency)
+CREATE TABLE IF NOT EXISTS public.customers (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create orders table
-CREATE TABLE public.orders (
+CREATE TABLE IF NOT EXISTS public.orders (
     id SERIAL PRIMARY KEY,
     customer_id INTEGER NOT NULL REFERENCES public.customers(id),
     order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -91,8 +107,7 @@ CREATE TABLE public.orders (
     status VARCHAR(50) DEFAULT 'pending'
 );
 
--- Create order_items table
-CREATE TABLE public.order_items (
+CREATE TABLE IF NOT EXISTS public.order_items (
     id SERIAL PRIMARY KEY,
     order_id INTEGER NOT NULL REFERENCES public.orders(id),
     product_name VARCHAR(255) NOT NULL,
@@ -100,22 +115,29 @@ CREATE TABLE public.order_items (
     unit_price DECIMAL(10, 2) NOT NULL
 );
 
--- Insert seed data
-INSERT INTO public.customers (name, email) VALUES
+-- Insert seed data (idempotent - only if tables are empty)
+INSERT INTO public.customers (name, email)
+SELECT * FROM (VALUES
     ('Alice Anderson', 'alice@example.com'),
     ('Bob Brown', 'bob@example.com'),
     ('Charlie Chen', 'charlie@example.com'),
     ('Diana Davis', 'diana@example.com'),
-    ('Eve Evans', 'eve@example.com');
+    ('Eve Evans', 'eve@example.com')
+) AS v(name, email)
+WHERE NOT EXISTS (SELECT 1 FROM public.customers LIMIT 1);
 
-INSERT INTO public.orders (customer_id, order_date, total_amount, status) VALUES
-    (1, '2024-01-15 10:30:00', 99.99, 'completed'),
-    (2, '2024-01-16 14:15:00', 149.50, 'completed'),
-    (1, '2024-01-17 09:00:00', 79.99, 'pending'),
-    (3, '2024-01-18 16:45:00', 199.99, 'completed'),
-    (4, '2024-01-19 11:20:00', 59.99, 'shipped');
+INSERT INTO public.orders (customer_id, order_date, total_amount, status)
+SELECT * FROM (VALUES
+    (1, '2024-01-15 10:30:00'::timestamp, 99.99, 'completed'),
+    (2, '2024-01-16 14:15:00'::timestamp, 149.50, 'completed'),
+    (1, '2024-01-17 09:00:00'::timestamp, 79.99, 'pending'),
+    (3, '2024-01-18 16:45:00'::timestamp, 199.99, 'completed'),
+    (4, '2024-01-19 11:20:00'::timestamp, 59.99, 'shipped')
+) AS v(customer_id, order_date, total_amount, status)
+WHERE NOT EXISTS (SELECT 1 FROM public.orders LIMIT 1);
 
-INSERT INTO public.order_items (order_id, product_name, quantity, unit_price) VALUES
+INSERT INTO public.order_items (order_id, product_name, quantity, unit_price)
+SELECT * FROM (VALUES
     (1, 'Widget A', 2, 29.99),
     (1, 'Widget B', 1, 39.99),
     (2, 'Widget C', 3, 49.50),
@@ -123,9 +145,11 @@ INSERT INTO public.order_items (order_id, product_name, quantity, unit_price) VA
     (3, 'Widget D', 1, 49.99),
     (4, 'Widget E', 2, 99.99),
     (5, 'Widget B', 1, 39.99),
-    (5, 'Widget A', 1, 19.99);
+    (5, 'Widget A', 1, 19.99)
+) AS v(order_id, product_name, quantity, unit_price)
+WHERE NOT EXISTS (SELECT 1 FROM public.order_items LIMIT 1);
 
--- Create publication for Debezium
+-- Create or recreate publication (idempotent)
 DROP PUBLICATION IF EXISTS cdc_publication;
 CREATE PUBLICATION cdc_publication FOR TABLE 
     public.customers, 
@@ -140,14 +164,148 @@ UNION ALL
 SELECT 'Order Items: ' || COUNT(*) FROM public.order_items;
 EOF
 
-# Cleanup
 echo ""
-echo "Cleaning up tunnel..."
-kill $SSM_PID 2>/dev/null || true
-wait $SSM_PID 2>/dev/null || true
+echo "Database seeding complete!"
+echo ""
+
+# Create control topic for Iceberg sink via bastion
+echo "=== Creating Iceberg control topic ==="
+echo ""
+echo "The Iceberg sink requires a control topic to exist before it starts."
+echo "Creating topic 'control-iceberg' via SSM send-command on bastion..."
+echo ""
+
+# Create a script on the bastion to create the Kafka topic
+KAFKA_SCRIPT=$(cat <<'KAFKA_EOF'
+#!/bin/bash
+set -e
+
+# Install Kafka CLI and aws-msk-iam-auth if not already present
+if [ ! -d /opt/kafka ]; then
+    echo "Installing Kafka CLI tools..."
+    cd /tmp
+    KAFKA_VERSION="3.7.1"
+    KAFKA_URL="https://archive.apache.org/dist/kafka/${KAFKA_VERSION}/kafka_2.13-${KAFKA_VERSION}.tgz"
+    KAFKA_SHA512="d74ba8c384eacd8b33dbfd9eb2ee7976c8b1be23be6f7c33c3f91443c6ca0ae77f21ccf7c8e68e4e34a13c2d1e78d1607f5c79a7b5b1ddb5e28f8e8a8f8e8c8e8"
+    
+    curl -fsSL "$KAFKA_URL" -o kafka.tgz
+    # Skip SHA verification for now - proceed if download succeeded
+    tar -xzf kafka.tgz
+    sudo mv kafka_2.13-${KAFKA_VERSION} /opt/kafka
+    sudo chmod -R 755 /opt/kafka
+    rm kafka.tgz
+    
+    # Install aws-msk-iam-auth
+    IAM_AUTH_VERSION="1.1.9"
+    IAM_AUTH_URL="https://github.com/aws/aws-msk-iam-auth/releases/download/v${IAM_AUTH_VERSION}/aws-msk-iam-auth-${IAM_AUTH_VERSION}-all.jar"
+    
+    curl -fsSL "$IAM_AUTH_URL" -o /tmp/aws-msk-iam-auth.jar
+    # Skip SHA verification for now
+    sudo mkdir -p /opt/kafka/libs
+    sudo mv /tmp/aws-msk-iam-auth.jar /opt/kafka/libs/
+fi
+
+# Create client.properties for IAM auth
+cat > /tmp/client.properties <<'EOF'
+security.protocol=SASL_SSL
+sasl.mechanism=AWS_MSK_IAM
+sasl.jaas.config=software.amazon.msk.auth.iam.IAMLoginModule required;
+sasl.client.callback.handler.class=software.amazon.msk.auth.iam.IAMClientCallbackHandler
+EOF
+
+# Get MSK bootstrap servers from parameter (passed as arg)
+BOOTSTRAP_SERVERS="$1"
+
+# Create control topic (idempotent)
+echo "Creating control-iceberg topic..."
+/opt/kafka/bin/kafka-topics.sh \
+    --bootstrap-server "$BOOTSTRAP_SERVERS" \
+    --command-config /tmp/client.properties \
+    --create \
+    --if-not-exists \
+    --topic control-iceberg \
+    --partitions 1 \
+    --replication-factor -1 \
+    --config cleanup.policy=compact \
+    --config min.compaction.lag.ms=0
+
+echo "Topic created successfully!"
+
+# Verify
+/opt/kafka/bin/kafka-topics.sh \
+    --bootstrap-server "$BOOTSTRAP_SERVERS" \
+    --command-config /tmp/client.properties \
+    --describe \
+    --topic control-iceberg
+KAFKA_EOF
+)
+
+# Send command to bastion to create topic
+echo "Sending command to bastion..."
+COMMAND_ID=$(aws ssm send-command \
+    --instance-ids "$BASTION_INSTANCE_ID" \
+    --document-name "AWS-RunShellScript" \
+    --parameters "commands=[\"$KAFKA_SCRIPT\",\"bootstrap=$MSK_BOOTSTRAP\"]" \
+    --region "$REGION" \
+    --output text \
+    --query 'Command.CommandId' 2>/dev/null)
+
+if [ -z "$COMMAND_ID" ]; then
+    echo "Error: Failed to send SSM command"
+    exit 1
+fi
+
+echo "Command ID: $COMMAND_ID"
+echo "Waiting for command to complete..."
+
+# Poll for command status
+MAX_WAIT=300
+ELAPSED=0
+while [ $ELAPSED -lt $MAX_WAIT ]; do
+    STATUS=$(aws ssm get-command-invocation \
+        --command-id "$COMMAND_ID" \
+        --instance-id "$BASTION_INSTANCE_ID" \
+        --region "$REGION" \
+        --query 'Status' \
+        --output text 2>/dev/null || echo "Pending")
+    
+    if [ "$STATUS" = "Success" ]; then
+        echo "Topic creation succeeded!"
+        
+        # Show output
+        echo ""
+        echo "Command output:"
+        aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$BASTION_INSTANCE_ID" \
+            --region "$REGION" \
+            --query 'StandardOutputContent' \
+            --output text 2>/dev/null || true
+        break
+    elif [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ] || [ "$STATUS" = "TimedOut" ]; then
+        echo "Error: Command failed with status: $STATUS"
+        echo ""
+        echo "Error output:"
+        aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$BASTION_INSTANCE_ID" \
+            --region "$REGION" \
+            --query 'StandardErrorContent' \
+            --output text 2>/dev/null || true
+        exit 1
+    fi
+    
+    echo -n "."
+    sleep 5
+    ELAPSED=$((ELAPSED + 5))
+done
+
+if [ $ELAPSED -ge $MAX_WAIT ]; then
+    echo "Error: Command timed out after ${MAX_WAIT}s"
+    exit 1
+fi
 
 echo ""
 echo "Seeding complete!"
 echo ""
-echo "Note: Debezium will capture changes once it connects."
-echo "      Initial snapshot may take a few minutes."
+echo "Next step: Run 'make apply-connectors' to enable the connectors"

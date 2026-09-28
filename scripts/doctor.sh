@@ -15,10 +15,9 @@ WARNINGS=0
 
 # Check AWS credentials
 echo -n "Checking AWS credentials... "
-if aws sts get-caller-identity >/dev/null 2>&1; then
-    CALLER_IDENTITY=$(aws sts get-caller-identity)
-    ACCOUNT_ID=$(echo "$CALLER_IDENTITY" | grep -o '"Account": "[^"]*' | cut -d'"' -f4)
-    USER_ARN=$(echo "$CALLER_IDENTITY" | grep -o '"Arn": "[^"]*' | cut -d'"' -f4)
+if CALLER_IDENTITY=$(aws sts get-caller-identity --query '{Account:Account,Arn:Arn}' --output text 2>/dev/null); then
+    ACCOUNT_ID=$(echo "$CALLER_IDENTITY" | awk '{print $1}')
+    USER_ARN=$(echo "$CALLER_IDENTITY" | awk '{$1=""; print $0}' | xargs)
     echo -e "${GREEN}OK${NC}"
     echo "  Account: $ACCOUNT_ID"
     echo "  Identity: $USER_ARN"
@@ -43,14 +42,17 @@ echo ""
 
 # Check required tools
 echo "Checking required tools:"
-REQUIRED_TOOLS="terraform aws psql python3"
+REQUIRED_TOOLS="terraform aws psql python3 curl shasum zip session-manager-plugin"
 for tool in $REQUIRED_TOOLS; do
     echo -n "  $tool... "
     if command -v "$tool" >/dev/null 2>&1; then
-        VERSION=$($tool --version 2>&1 | head -n 1)
+        VERSION=$($tool --version 2>&1 | head -n 1 || echo "installed")
         echo -e "${GREEN}OK${NC} ($VERSION)"
     else
         echo -e "${RED}NOT FOUND${NC}"
+        if [ "$tool" = "session-manager-plugin" ]; then
+            echo "    Install: https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html"
+        fi
         ERRORS=$((ERRORS + 1))
     fi
 done
@@ -79,14 +81,18 @@ check_quota() {
     local required=$4
     
     echo -n "  $quota_name... "
+    
+    # Get quota value with explicit error handling
     QUOTA=$(aws service-quotas get-service-quota \
         --service-code "$service" \
         --quota-code "$quota_code" \
-        --region "$REGION" 2>/dev/null | \
-        grep -o '"Value": [0-9.]*' | cut -d' ' -f2 || echo "0")
+        --region "$REGION" \
+        --query 'Quota.Value' \
+        --output text 2>/dev/null || echo "0")
     
-    if [ "$QUOTA" = "0" ]; then
+    if [ "$QUOTA" = "0" ] || [ -z "$QUOTA" ]; then
         echo -e "${YELLOW}Unable to check${NC}"
+        WARNINGS=$((WARNINGS + 1))
     else
         QUOTA_INT=$(echo "$QUOTA" | cut -d. -f1)
         if [ "$QUOTA_INT" -ge "$required" ]; then
@@ -98,9 +104,11 @@ check_quota() {
     fi
 }
 
+# Verified quota codes (2026-09-28)
 check_quota "kafka" "L-6C9C37C4" "MSK clusters per region" 1
 check_quota "rds" "L-7B6409FD" "DB instances" 1
-check_quota "ec2" "L-0EA8095F" "Interface VPC endpoints per VPC" 8
+check_quota "vpc" "L-29B6F2EB" "Interface VPC endpoints per VPC" 8
+check_quota "ec2" "L-1216C47A" "Running On-Demand Standard instances" 1
 echo ""
 
 # Check Terraform
@@ -111,26 +119,26 @@ if cd terraform && terraform init -backend=false >/dev/null 2>&1 && terraform va
 else
     echo -e "${RED}FAILED${NC}"
     ERRORS=$((ERRORS + 1))
-    cd ..
+    cd .. 2>/dev/null || true
 fi
 echo ""
 
 # Cost estimation
 echo "=== Estimated AWS Costs (as of 2026-09-28, $REGION) ==="
 echo ""
-echo "Based on current AWS pricing:"
+echo "Based on current AWS pricing (verified 2026-09-28):"
 echo ""
 echo "Compute & Storage:"
 echo "  RDS db.t4g.micro (PostgreSQL)           ~\$0.016/hour"
 echo "  RDS storage (20 GB gp3)                 ~\$0.003/hour"
 echo "  MSK Serverless cluster-hour             ~\$0.750/hour"
-echo "  MSK Serverless partition-hours (15)     ~\$0.023/hour"
+echo "  MSK Serverless partition-hours (~15)    ~\$0.023/hour"
 echo "  MSK Connect (2 MCU-hours)               ~\$0.220/hour"
 echo "  EC2 t3.micro bastion                    ~\$0.010/hour"
+echo "  Public IPv4 address                     ~\$0.005/hour"
 echo ""
 echo "Networking:"
-echo "  VPC Interface Endpoints (6 endpoints)   ~\$0.120/hour"
-echo "  (2 AZs x \$0.01/hour x 6 endpoints)"
+echo "  VPC Interface Endpoints (6 x 2 AZs)     ~\$0.120/hour"
 echo ""
 echo "Data Transfer & Queries:"
 echo "  S3 storage (varies with data)           ~\$0.023/GB/month"
@@ -138,26 +146,27 @@ echo "  Athena queries                          ~\$5/TB scanned"
 echo "  CloudWatch Logs (minimal)               ~\$0.50/GB ingested"
 echo ""
 echo "---"
-echo "Total estimated hourly cost:              ~\$1.14/hour"
+echo "Total estimated hourly cost:              ~\$1.15/hour"
 echo "Estimated cost for 1-hour test:           ~\$1.20"
 echo ""
 echo "Notes:"
-echo "  - Pricing from https://aws.amazon.com/pricing/ (verified 2026-09-28)"
-echo "  - MSK Serverless: Auto-scaling, no broker management"
-echo "  - Cost drops to ~\$0 within minutes after 'make destroy'"
-echo "  - Actual costs may vary based on usage and data transfer"
+echo "  - MSK Serverless: \$0.75/cluster-hr + \$0.0015/partition-hr"
+echo "  - MSK Connect: \$0.11/MCU-hr x 2 MCUs = \$0.22/hr"
+echo "  - Partitions: ~5 compacted (Connect internals + control) + ~10 data topics"
+echo "  - Pricing: https://aws.amazon.com/pricing/ (verified 2026-09-28)"
+echo "  - Cost drops to ~\$0 within minutes after 'make down'"
 echo ""
 
 # Summary
 echo "=== Summary ==="
 if [ $ERRORS -gt 0 ]; then
     echo -e "${RED}Found $ERRORS error(s)${NC}"
-    echo "Please resolve errors before running 'make apply'"
+    echo "Please resolve errors before running 'make up'"
     exit 1
 elif [ $WARNINGS -gt 0 ]; then
     echo -e "${YELLOW}Found $WARNINGS warning(s)${NC}"
-    echo "You may proceed with 'make apply'"
+    echo "You may proceed with 'make up'"
 else
     echo -e "${GREEN}All checks passed!${NC}"
-    echo "Ready to run 'make apply'"
+    echo "Ready to run 'make up'"
 fi

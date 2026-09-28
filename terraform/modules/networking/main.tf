@@ -338,19 +338,9 @@ resource "aws_security_group_rule" "bastion_ssh" {
 }
 
 # Bastion instance for reaching private RDS
-data "aws_ami" "amazon_linux_2023" {
-  most_recent = true
-  owners      = ["amazon"]
-
-  filter {
-    name   = "name"
-    values = ["al2023-ami-*-x86_64"]
-  }
-
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
-  }
+# Use SSM parameter to get latest AL2023 AMI
+data "aws_ssm_parameter" "amazon_linux_2023" {
+  name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
 }
 
 resource "aws_iam_role" "bastion" {
@@ -387,7 +377,7 @@ resource "aws_iam_instance_profile" "bastion" {
 }
 
 resource "aws_instance" "bastion" {
-  ami                    = data.aws_ami.amazon_linux_2023.id
+  ami                    = data.aws_ssm_parameter.amazon_linux_2023.value
   instance_type          = "t3.micro"
   subnet_id              = aws_subnet.public.id
   vpc_security_group_ids = [aws_security_group.bastion.id]
@@ -395,7 +385,6 @@ resource "aws_instance" "bastion" {
 
   user_data = <<-EOF
     #!/bin/bash
-    yum update -y
     yum install -y postgresql15
   EOF
 

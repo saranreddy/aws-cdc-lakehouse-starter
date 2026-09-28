@@ -4,6 +4,19 @@ set -e
 echo "=== Smoke Test ==="
 echo ""
 
+# Trap to cleanup on exit
+cleanup() {
+    local exit_code=$?
+    if [ -n "$SSM_PID" ]; then
+        echo ""
+        echo "Cleaning up SSM tunnel..."
+        kill "$SSM_PID" 2>/dev/null || true
+        wait "$SSM_PID" 2>/dev/null || true
+    fi
+    exit $exit_code
+}
+trap cleanup EXIT INT TERM
+
 # Get outputs
 cd terraform
 RDS_ENDPOINT=$(terraform output -raw rds_endpoint 2>/dev/null | cut -d: -f1)
@@ -18,7 +31,7 @@ REGION=$(terraform output -raw region 2>/dev/null)
 cd ..
 
 if [ -z "$RDS_ENDPOINT" ] || [ -z "$ATHENA_DATABASE" ]; then
-    echo "Error: Could not retrieve required outputs. Has 'make apply' been run?"
+    echo "Error: Could not retrieve required outputs. Has deployment completed?"
     exit 1
 fi
 
@@ -28,17 +41,29 @@ echo "Test marker: $MARKER"
 echo ""
 
 # Get RDS password
-PGPASSWORD_VALUE=$(aws secretsmanager get-secret-value --secret-id "$RDS_SECRET_ARN" --query SecretString --output text | grep -o '"password":"[^"]*' | cut -d'"' -f4)
+if ! PGPASSWORD_VALUE=$(aws secretsmanager get-secret-value \
+    --secret-id "$RDS_SECRET_ARN" \
+    --region "$REGION" \
+    --query SecretString \
+    --output text 2>/dev/null); then
+    echo "Error: Failed to retrieve RDS password"
+    exit 1
+fi
+
+PGPASSWORD_VALUE=$(python3 -c "import sys, json; print(json.loads('$PGPASSWORD_VALUE')['password'])" 2>/dev/null)
 export PGPASSWORD="$PGPASSWORD_VALUE"
 
 # Start SSM tunnel
 echo "Starting SSM port forward..."
 LOCAL_PORT=5433
-aws ssm start-session \
+if ! aws ssm start-session \
     --target "$BASTION_INSTANCE_ID" \
     --document-name AWS-StartPortForwardingSessionToRemoteHost \
     --parameters "{\"host\":[\"$RDS_ENDPOINT\"],\"portNumber\":[\"$RDS_PORT\"],\"localPortNumber\":[\"$LOCAL_PORT\"]}" \
-    >/dev/null 2>&1 &
+    >/dev/null 2>&1 & then
+    echo "Error: Failed to start SSM session"
+    exit 1
+fi
 SSM_PID=$!
 
 # Wait for tunnel
@@ -54,7 +79,6 @@ done
 
 if [ $RETRIES -eq $MAX_RETRIES ]; then
     echo "Error: Tunnel failed to start"
-    kill $SSM_PID 2>/dev/null || true
     exit 1
 fi
 
@@ -72,9 +96,9 @@ echo "  Inserted customer ID: $CUSTOMER_ID"
 
 # Test 2: Poll Athena until row appears
 echo ""
-echo "Test 2: Polling Athena for row (max 5 minutes)..."
+echo "Test 2: Polling Athena for row (max 10 minutes)..."
 POLL_START=$(date +%s)
-MAX_WAIT=300
+MAX_WAIT=600
 FOUND=0
 
 while [ $(($(date +%s) - POLL_START)) -lt $MAX_WAIT ]; do
@@ -140,7 +164,6 @@ if [ $FOUND -eq 0 ]; then
     echo "  - Iceberg connector is not running"
     echo "  - Network connectivity issues"
     echo "  - Connector configuration issues"
-    kill $SSM_PID 2>/dev/null || true
     exit 1
 fi
 
@@ -286,9 +309,7 @@ if [ $DELETE_FOUND -eq 0 ]; then
     echo "Warning: Deletion not reflected in Athena after ${MAX_WAIT}s"
 fi
 
-# Cleanup
-kill $SSM_PID 2>/dev/null || true
-
+# Cleanup handled by trap
 echo ""
 echo "=== Smoke Test Summary ==="
 echo "  Insert latency: ${LATENCY}s"

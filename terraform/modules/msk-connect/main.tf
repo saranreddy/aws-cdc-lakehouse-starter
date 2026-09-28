@@ -276,6 +276,13 @@ resource "aws_mskconnect_connector" "debezium_postgres" {
   }
 
   depends_on = [aws_mskconnect_custom_plugin.debezium]
+  
+  lifecycle {
+    replace_triggered_by = [
+      aws_mskconnect_custom_plugin.debezium.id,
+      aws_mskconnect_worker_configuration.debezium.id
+    ]
+  }
 }
 
 # Iceberg sink connector
@@ -389,6 +396,12 @@ resource "aws_mskconnect_connector" "iceberg_sink" {
     aws_mskconnect_custom_plugin.iceberg,
     aws_mskconnect_connector.debezium_postgres
   ]
+  
+  lifecycle {
+    replace_triggered_by = [
+      aws_mskconnect_custom_plugin.iceberg.id
+    ]
+  }
 }
 
 # CloudWatch log groups for connectors

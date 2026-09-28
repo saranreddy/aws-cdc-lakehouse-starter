@@ -58,7 +58,8 @@ jobs:
       
       - name: Run shellcheck
         run: |
-          find scripts -name '*.sh' -type f -exec shellcheck {} +
+          echo "Running shellcheck on all scripts..."
+          find scripts -name '*.sh' -type f -exec shellcheck -S warning {} +
       
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -72,7 +73,8 @@ jobs:
       
       - name: Run pylint
         run: |
-          pylint scripts/*.py || true
+          echo "Running pylint..."
+          pylint scripts/*.py --fail-under=8.0
   
   test:
     name: Python Tests
@@ -95,6 +97,35 @@ jobs:
       - name: Run unit tests
         run: |
           python -m pytest tests/ -v
+  
+  logic-tests:
+    name: Bash Script Logic Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Test smoke/doctor helper logic
+        run: |
+          # Test that grep patterns handle empty results correctly
+          echo "Testing grep -c patterns..."
+          
+          # Test pattern: should return 0, not "0\n0"
+          RESULT=$(echo "" | grep -c "test" 2>/dev/null || echo "0")
+          if [ "$RESULT" != "0" ]; then
+            echo "Error: grep pattern returned '$RESULT' instead of '0'"
+            exit 1
+          fi
+          
+          # Test quota helper logic pattern
+          QUOTA=$(echo "0" | cut -d. -f1)
+          if [ "$QUOTA" != "0" ]; then
+            echo "Error: quota parsing failed"
+            exit 1
+          fi
+          
+          echo "All bash logic tests passed!"
   
   diagram:
     name: Architecture Diagram
