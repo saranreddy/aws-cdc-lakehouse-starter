@@ -27,7 +27,8 @@ echo ""
 
 # Get password from Secrets Manager
 echo "Retrieving password from Secrets Manager..."
-export PGPASSWORD=$(aws secretsmanager get-secret-value --secret-id "$RDS_SECRET_ARN" --query SecretString --output text | grep -o '"password":"[^"]*' | cut -d'"' -f4)
+PGPASSWORD_VALUE=$(aws secretsmanager get-secret-value --secret-id "$RDS_SECRET_ARN" --query SecretString --output text | grep -o '"password":"[^"]*' | cut -d'"' -f4)
+export PGPASSWORD="$PGPASSWORD_VALUE"
 
 # Connect via SSM port forwarding
 echo "Starting SSM port forward session..."

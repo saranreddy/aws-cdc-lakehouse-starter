@@ -22,7 +22,11 @@ class TestLoadGenerator(unittest.TestCase):
         """Set up test fixtures."""
         self.mock_conn = Mock()
         self.mock_cursor = Mock()
-        self.mock_conn.cursor.return_value.__enter__.return_value = self.mock_cursor
+        # Create a proper context manager mock
+        self.mock_cursor_context = MagicMock()
+        self.mock_cursor_context.__enter__ = Mock(return_value=self.mock_cursor)
+        self.mock_cursor_context.__exit__ = Mock(return_value=False)
+        self.mock_conn.cursor.return_value = self.mock_cursor_context
         
     def test_insert_customer(self):
         """Test customer insertion."""

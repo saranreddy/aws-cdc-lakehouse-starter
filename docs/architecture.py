@@ -6,9 +6,8 @@ Requires: pip3 install diagrams graphviz
 
 from diagrams import Diagram, Cluster, Edge
 from diagrams.aws.database import RDS, RDSPostgresqlInstance
-from diagrams.aws.analytics import Glue, Athena
+from diagrams.aws.analytics import Glue, Athena, ManagedStreamingForApacheKafka
 from diagrams.aws.storage import S3
-from diagrams.aws.integration import ManagedStreamingForKafka
 from diagrams.aws.compute import EC2
 from diagrams.aws.network import VPC, PrivateSubnet, InternetGateway, VPCEndpoint
 from diagrams.aws.security import SecretsManager
@@ -52,23 +51,21 @@ with Diagram(
                 secrets >> Edge(style="dotted") >> rds
             
             with Cluster("Streaming"):
-                msk = ManagedStreamingForKafka(
+                msk = ManagedStreamingForApacheKafka(
                     "MSK Cluster\n" +
                     "kafka.t3.small x2\n" +
                     "IAM Auth"
                 )
             
             with Cluster("MSK Connect"):
-                debezium = Custom(
+                debezium = EC2(
                     "Debezium\nPostgres Source\n" +
-                    "v2.5.4",
-                    "./kafka_icon.png" if os.path.exists("./kafka_icon.png") else None
+                    "v2.5.4"
                 )
                 
-                iceberg_sink = Custom(
+                iceberg_sink = EC2(
                     "Iceberg\nKafka Sink\n" +
-                    "v1.4.3",
-                    "./iceberg_icon.png" if os.path.exists("./iceberg_icon.png") else None
+                    "v1.4.3"
                 )
             
             endpoints = VPCEndpoint("VPC Endpoints\n" +

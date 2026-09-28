@@ -28,7 +28,8 @@ echo "Test marker: $MARKER"
 echo ""
 
 # Get RDS password
-export PGPASSWORD=$(aws secretsmanager get-secret-value --secret-id "$RDS_SECRET_ARN" --query SecretString --output text | grep -o '"password":"[^"]*' | cut -d'"' -f4)
+PGPASSWORD_VALUE=$(aws secretsmanager get-secret-value --secret-id "$RDS_SECRET_ARN" --query SecretString --output text | grep -o '"password":"[^"]*' | cut -d'"' -f4)
+export PGPASSWORD="$PGPASSWORD_VALUE"
 
 # Start SSM tunnel
 echo "Starting SSM port forward..."
