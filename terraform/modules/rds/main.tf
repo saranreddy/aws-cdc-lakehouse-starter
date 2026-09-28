@@ -68,8 +68,8 @@ resource "aws_db_instance" "postgres" {
 
   auto_minor_version_upgrade = true
   backup_retention_period    = 1
-  backup_window           = "03:00-04:00"
-  maintenance_window      = "mon:04:00-mon:05:00"
+  backup_window              = "03:00-04:00"
+  maintenance_window         = "mon:04:00-mon:05:00"
 
   skip_final_snapshot      = true
   deletion_protection      = false

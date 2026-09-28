@@ -209,12 +209,12 @@ resource "aws_mskconnect_connector" "debezium_postgres" {
     "topic.prefix" = var.name_prefix
 
     # Replication
-    "plugin.name"                     = "pgoutput"
-    "slot.name"                       = "cdc_lakehouse_slot"
-    "publication.name"                = "cdc_publication"
-    "publication.autocreate.mode"     = "disabled"
-    "tombstones.on.delete"            = "true"
-    "provide.transaction.metadata"    = "false"
+    "plugin.name"                  = "pgoutput"
+    "slot.name"                    = "cdc_lakehouse_slot"
+    "publication.name"             = "cdc_publication"
+    "publication.autocreate.mode"  = "disabled"
+    "tombstones.on.delete"         = "true"
+    "provide.transaction.metadata" = "false"
 
     # Topic creation - let Kafka Connect create topics
     "topic.creation.default.replication.factor" = "-1"
@@ -396,7 +396,7 @@ resource "aws_mskconnect_connector" "iceberg_sink" {
     aws_mskconnect_custom_plugin.iceberg,
     aws_mskconnect_connector.debezium_postgres
   ]
-  
+
   lifecycle {
     replace_triggered_by = [
       aws_mskconnect_custom_plugin.iceberg.id
