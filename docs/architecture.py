@@ -9,7 +9,7 @@ from diagrams.aws.database import RDSPostgresqlInstance
 from diagrams.aws.analytics import Glue, Athena, KinesisDataStreams
 from diagrams.aws.storage import S3
 from diagrams.aws.compute import EC2
-from diagrams.aws.network import InternetGateway, VPCEndpoint
+from diagrams.aws.network import InternetGateway, Endpoint
 from diagrams.aws.security import SecretsManager
 import os
 
