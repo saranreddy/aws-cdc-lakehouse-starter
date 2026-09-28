@@ -51,7 +51,7 @@ resource "aws_db_instance" "postgres" {
   identifier_prefix = "${var.name_prefix}-"
 
   engine         = "postgres"
-  engine_version = "16.3"
+  engine_version = "16"
   instance_class = var.instance_class
 
   allocated_storage = var.allocated_storage
@@ -66,7 +66,8 @@ resource "aws_db_instance" "postgres" {
   vpc_security_group_ids = var.security_group_ids
   parameter_group_name   = aws_db_parameter_group.postgres.name
 
-  backup_retention_period = 1
+  auto_minor_version_upgrade = true
+  backup_retention_period    = 1
   backup_window           = "03:00-04:00"
   maintenance_window      = "mon:04:00-mon:05:00"
 

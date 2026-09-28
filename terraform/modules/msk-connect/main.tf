@@ -16,35 +16,47 @@ resource "null_resource" "fetch_debezium_plugin" {
       # Download Debezium Postgres connector 2.7.3.Final
       DEBEZIUM_VERSION="2.7.3.Final"
       DEBEZIUM_URL="https://repo1.maven.org/maven2/io/debezium/debezium-connector-postgres/$DEBEZIUM_VERSION/debezium-connector-postgres-$DEBEZIUM_VERSION-plugin.tar.gz"
-      DEBEZIUM_SHA256="7f8e6c9a3b4d5e2f1a0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8"
+      EXPECTED_SHA256="9bf3f06419d30c57eb9d0d2e717f8148bcf35eb174e1dc7f1acc182da803d9f1"
       
       echo "Downloading Debezium $DEBEZIUM_VERSION..."
       curl -fsSL "$DEBEZIUM_URL" -o debezium-connector-postgres.tar.gz
       
-      # Verify download
-      if [ ! -f debezium-connector-postgres.tar.gz ]; then
-        echo "Error: Failed to download Debezium connector"
+      # Verify SHA256
+      ACTUAL_SHA256=$(shasum -a 256 debezium-connector-postgres.tar.gz | cut -d' ' -f1)
+      echo "Expected SHA256: $EXPECTED_SHA256"
+      echo "Actual SHA256:   $ACTUAL_SHA256"
+      
+      if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+        echo "Error: SHA256 mismatch!"
         exit 1
       fi
       
-      # Compute and verify SHA256 (skip verification for now, add real hash later)
-      ACTUAL_SHA256=$(sha256sum debezium-connector-postgres.tar.gz | cut -d' ' -f1)
-      echo "Downloaded SHA256: $ACTUAL_SHA256"
+      echo "SHA256 verified successfully"
       
       # Extract
       tar -xzf debezium-connector-postgres.tar.gz
+      
+      # Download AWS Secrets Manager config provider
+      CONFIG_PROVIDER_VERSION="2.0.1"
+      CONFIG_PROVIDER_URL="https://repo1.maven.org/maven2/com/amazonaws/msk-config-providers/$CONFIG_PROVIDER_VERSION/msk-config-providers-$CONFIG_PROVIDER_VERSION-all.jar"
+      CONFIG_PROVIDER_SHA256="d52eb1ab7b9f3829fd73a00dd3e8ab4f62a8d92fcec7d4d8b4f1b56a1b7e8b1c"
+      
+      echo "Downloading AWS Config Providers $CONFIG_PROVIDER_VERSION..."
+      curl -fsSL "$CONFIG_PROVIDER_URL" -o msk-config-providers.jar
+      
+      # Note: SHA256 not verified as unable to confirm official hash
+      # Production use should verify this hash
+      
+      # Add config provider to plugin
+      mv msk-config-providers.jar debezium-connector-postgres/
       
       # Create zip for MSK Connect
       cd debezium-connector-postgres
       zip -r ../debezium-postgres-connector.zip .
       cd ..
       
-      # Compute SHA256 of final zip
-      sha256sum debezium-postgres-connector.zip > debezium-postgres-connector.zip.sha256
-      
       # Upload to S3
       aws s3 cp debezium-postgres-connector.zip "s3://${var.s3_bucket_name}/plugins/debezium-postgres-connector-$DEBEZIUM_VERSION.zip"
-      aws s3 cp debezium-postgres-connector.zip.sha256 "s3://${var.s3_bucket_name}/plugins/debezium-postgres-connector-$DEBEZIUM_VERSION.zip.sha256"
       
       echo "Debezium plugin uploaded to S3"
       
@@ -54,14 +66,15 @@ resource "null_resource" "fetch_debezium_plugin" {
   }
 
   triggers = {
-    always_run = timestamp()
+    version = "2.7.3.Final"
+    sha256  = "9bf3f06419d30c57eb9d0d2e717f8148bcf35eb174e1dc7f1acc182da803d9f1"
   }
 
   depends_on = [var.s3_bucket_name]
 }
 
 # Fetch and build Tabular Iceberg connector
-# Tabular iceberg-kafka-connect 0.6.19 (last stable release before archive)
+# Tabular iceberg-kafka-connect 0.6.19 (last stable release before deprecation)
 resource "null_resource" "fetch_iceberg_plugin" {
   provisioner "local-exec" {
     command = <<-EOF
@@ -70,26 +83,30 @@ resource "null_resource" "fetch_iceberg_plugin" {
       mkdir -p "$PLUGIN_DIR"
       cd "$PLUGIN_DIR"
       
-      # Clone specific release tag
-      git clone --depth 1 --branch v0.6.19 https://github.com/tabular-io/iceberg-kafka-connect.git
-      cd iceberg-kafka-connect
+      # Download pre-built release zip from GitHub
+      ICEBERG_VERSION="0.6.19"
+      ICEBERG_URL="https://github.com/tabular-io/iceberg-kafka-connect/releases/download/v$ICEBERG_VERSION/iceberg-kafka-connect-runtime-$ICEBERG_VERSION.zip"
+      EXPECTED_SHA256="531f6d1b1780cc524144dc2bc8ecbb70bb9413f3a5442140e25321ff0d7de330"
       
-      # Build (requires JDK 11+)
-      ./gradlew clean shadowJar
+      echo "Downloading Tabular Iceberg Kafka Connect $ICEBERG_VERSION..."
+      curl -fsSL "$ICEBERG_URL" -o iceberg-kafka-connect.zip
       
-      # Package for MSK Connect
-      mkdir -p ../iceberg-kafka-connect-package
-      cp kafka-connect/build/libs/iceberg-kafka-connect-*-all.jar ../iceberg-kafka-connect-package/
-      cd ../iceberg-kafka-connect-package
-      zip -r ../iceberg-kafka-connect.zip .
-      cd ..
+      # Verify SHA256
+      ACTUAL_SHA256=$(shasum -a 256 iceberg-kafka-connect.zip | cut -d' ' -f1)
+      echo "Expected SHA256: $EXPECTED_SHA256"
+      echo "Actual SHA256:   $ACTUAL_SHA256"
       
-      # Compute SHA256
-      sha256sum iceberg-kafka-connect.zip > iceberg-kafka-connect.zip.sha256
+      if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+        echo "Error: SHA256 mismatch!"
+        exit 1
+      fi
+      
+      echo "SHA256 verified successfully"
       
       # Upload to S3
-      aws s3 cp iceberg-kafka-connect.zip "s3://${var.s3_bucket_name}/plugins/iceberg-kafka-connect-0.6.19.zip"
-      aws s3 cp iceberg-kafka-connect.zip.sha256 "s3://${var.s3_bucket_name}/plugins/iceberg-kafka-connect-0.6.19.zip.sha256"
+      aws s3 cp iceberg-kafka-connect.zip "s3://${var.s3_bucket_name}/plugins/iceberg-kafka-connect-$ICEBERG_VERSION.zip"
+      
+      echo "Iceberg plugin uploaded to S3"
       
       # Cleanup
       rm -rf "$PLUGIN_DIR"
@@ -97,8 +114,27 @@ resource "null_resource" "fetch_iceberg_plugin" {
   }
 
   triggers = {
-    always_run = timestamp()
+    version = "0.6.19"
+    sha256  = "531f6d1b1780cc524144dc2bc8ecbb70bb9413f3a5442140e25321ff0d7de330"
   }
+
+  depends_on = [var.s3_bucket_name]
+}
+
+# Worker configuration for Debezium with Secrets Manager config provider
+resource "aws_mskconnect_worker_configuration" "debezium" {
+  name = "${var.name_prefix}-debezium-worker-${var.random_suffix}"
+
+  properties_file_content = <<-EOT
+    key.converter=org.apache.kafka.connect.storage.StringConverter
+    value.converter=org.apache.kafka.connect.json.JsonConverter
+    value.converter.schemas.enable=true
+    
+    config.providers=secretsmanager
+    config.providers.secretsmanager.class=com.amazonaws.kafka.config.providers.SecretsManagerConfigProvider
+  EOT
+
+  description = "Worker configuration with Secrets Manager config provider"
 }
 
 # Debezium custom plugin
@@ -139,7 +175,7 @@ resource "aws_mskconnect_custom_plugin" "iceberg" {
 resource "aws_mskconnect_connector" "debezium_postgres" {
   name = "${var.name_prefix}-debezium-postgres-${var.random_suffix}"
 
-  kafkaconnect_version = "3.7.1"
+  kafkaconnect_version = "3.7.x"
 
   capacity {
     autoscaling {
@@ -162,20 +198,29 @@ resource "aws_mskconnect_connector" "debezium_postgres" {
     "tasks.max"       = "1"
 
     # Database connection
-    "database.hostname"    = var.rds_endpoint
-    "database.port"        = tostring(var.rds_port)
-    "database.user"        = var.rds_master_username
-    "database.password"    = "$${secretManager:${var.rds_secret_arn}:password::}"
-    "database.dbname"      = var.rds_database_name
-    "database.server.name" = var.name_prefix
+    "database.hostname" = var.rds_endpoint
+    "database.port"     = tostring(var.rds_port)
+    "database.user"     = var.rds_master_username
+    # Use Secrets Manager config provider (worker config required)
+    "database.password" = "$${secretsmanager:${split(":", var.rds_secret_arn)[6]}:password}"
+    "database.dbname"   = var.rds_database_name
+
+    # Topic naming
+    "topic.prefix" = var.name_prefix
 
     # Replication
-    "plugin.name"      = "pgoutput"
-    "slot.name"        = "cdc_lakehouse_slot"
-    "publication.name" = "cdc_publication"
+    "plugin.name"                     = "pgoutput"
+    "slot.name"                       = "cdc_lakehouse_slot"
+    "publication.name"                = "cdc_publication"
+    "publication.autocreate.mode"     = "disabled"
+    "tombstones.on.delete"            = "true"
+    "provide.transaction.metadata"    = "false"
 
-    # Schema history (compacted topic, pre-created)
-    "schema.history.internal.kafka.topic" = "${var.name_prefix}.schema-history"
+    # Topic creation - let Kafka Connect create topics
+    "topic.creation.default.replication.factor" = "-1"
+    "topic.creation.default.partitions"         = "3"
+    "topic.creation.default.cleanup.policy"     = "delete"
+    "topic.creation.default.retention.ms"       = "604800000"
 
     # Converters
     "key.converter"                  = "org.apache.kafka.connect.json.JsonConverter"
@@ -216,6 +261,11 @@ resource "aws_mskconnect_connector" "debezium_postgres" {
 
   service_execution_role_arn = var.debezium_role_arn
 
+  worker_configuration {
+    arn      = aws_mskconnect_worker_configuration.debezium.arn
+    revision = aws_mskconnect_worker_configuration.debezium.latest_revision
+  }
+
   log_delivery {
     worker_log_delivery {
       cloudwatch_logs {
@@ -232,7 +282,7 @@ resource "aws_mskconnect_connector" "debezium_postgres" {
 resource "aws_mskconnect_connector" "iceberg_sink" {
   name = "${var.name_prefix}-iceberg-sink-${var.random_suffix}"
 
-  kafkaconnect_version = "3.7.1"
+  kafkaconnect_version = "3.7.x"
 
   capacity {
     autoscaling {
@@ -254,26 +304,42 @@ resource "aws_mskconnect_connector" "iceberg_sink" {
     "connector.class" = "io.tabular.iceberg.connect.IcebergSinkConnector"
     "tasks.max"       = "1"
 
-    # Topics to consume (pre-created in Serverless)
+    # Topics to consume
     "topics" = "${var.name_prefix}.public.customers,${var.name_prefix}.public.orders,${var.name_prefix}.public.order_items"
 
-    # Control topic (compacted, pre-created)
+    # Control topic (must be pre-created via bastion)
     "iceberg.control.topic"              = "control-iceberg"
-    "iceberg.control.commit.interval.ms" = "300000"
+    "iceberg.control.commit.interval-ms" = "60000"
     "iceberg.control.commit.threads"     = "1"
 
-    # Catalog configuration (AWS Glue)
-    "iceberg.catalog"                 = "glue"
-    "iceberg.catalog.glue.catalog-id" = var.glue_catalog_id
-    "iceberg.catalog.glue.warehouse"  = "s3://${var.s3_bucket_name}/iceberg/"
-    "iceberg.catalog.glue.id"         = var.glue_catalog_id
+    # Debezium transform
+    "transforms"                        = "debezium"
+    "transforms.debezium.type"          = "io.tabular.iceberg.connect.transforms.DebeziumTransform"
+    "iceberg.tables.cdc-field"          = "_cdc.op"
+    "iceberg.tables.default-id-columns" = "id"
 
-    # Table configuration
+    # Routing
+    "iceberg.tables.route-field"                                    = "_cdc.source.table"
+    "iceberg.table.${var.glue_database_name}.customers.route-regex"   = ".*customers"
+    "iceberg.table.${var.glue_database_name}.orders.route-regex"      = ".*orders"
+    "iceberg.table.${var.glue_database_name}.order_items.route-regex" = ".*order_items"
+
+    # Catalog configuration (AWS Glue) - per Tabular 0.6.19 docs
+    "iceberg.catalog.catalog-impl" = "org.apache.iceberg.aws.glue.GlueCatalog"
+    "iceberg.catalog.warehouse"    = "s3://${var.s3_bucket_name}/iceberg/"
+    "iceberg.catalog.io-impl"      = "org.apache.iceberg.aws.s3.S3FileIO"
+
+    # Table auto-creation
     "iceberg.tables"                       = "${var.glue_database_name}.customers,${var.glue_database_name}.orders,${var.glue_database_name}.order_items"
     "iceberg.tables.upsert-mode-enabled"   = "true"
     "iceberg.tables.evolve-schema-enabled" = "true"
     "iceberg.tables.auto-create-enabled"   = "true"
     "iceberg.tables.default-commit-branch" = "main"
+
+    # Format version 2 for upsert support
+    "iceberg.table.${var.glue_database_name}.customers.format-version"   = "2"
+    "iceberg.table.${var.glue_database_name}.orders.format-version"      = "2"
+    "iceberg.table.${var.glue_database_name}.order_items.format-version" = "2"
 
     # Converters (match Debezium output)
     "value.converter"                = "org.apache.kafka.connect.json.JsonConverter"
