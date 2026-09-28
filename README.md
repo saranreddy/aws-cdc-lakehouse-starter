@@ -275,8 +275,10 @@ See `docs/runbooks/` for operational procedures:
 
 ### Connector Versions
 
-- **Debezium 2.5.4.Final**: Compatible with Kafka 3.5.x (MSK Connect runtime 2.7.1 uses Kafka 3.5.1)
-- **Iceberg Kafka Connect 1.4.3**: Compatible with Kafka Connect 3.5.x and Iceberg 1.4.x
+- **Debezium 2.7.3.Final**: Java 11+ compatible, works with MSK Connect runtime 3.7.1 (Kafka Connect 3.7.x)
+- **Tabular Iceberg Kafka Connect 0.6.19**: Last stable release before Databricks archived the project, field-proven with Debezium integration
+
+**Rationale**: MSK Connect 3.7.x runtime uses Java 11. Debezium 3.x series requires Java 17+, so we use the latest 2.7.x series (2.7.3.Final) which supports Java 11+ and Kafka Connect 2.x/3.x.
 
 ### Schema Changes
 
