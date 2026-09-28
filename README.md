@@ -2,7 +2,7 @@
 
 A production-quality reference implementation for Change Data Capture (CDC) into an Apache Iceberg data lakehouse on AWS. Captures changes from RDS Postgres in near real-time (1-2 minute latency) and makes them queryable via Athena.
 
-**Architecture**: RDS Postgres (logical replication) → Debezium on MSK Connect → Amazon MSK → Iceberg Sink on MSK Connect → S3 (Iceberg tables) → Glue Data Catalog → Athena
+**Architecture**: RDS Postgres (logical replication) → Debezium on MSK Connect → Amazon MSK Serverless → Iceberg Sink on MSK Connect → S3 (Iceberg tables) → Glue Data Catalog → Athena
 
 ## What This Is
 
@@ -53,9 +53,9 @@ This is v0.1.0—a solid foundation, not a complete production system.
 ### Data Flow
 
 1. **RDS Postgres** with logical replication publishes changes via the `pgoutput` plugin
-2. **Debezium Postgres Connector** (v2.5.4) on MSK Connect captures changes and emits Kafka events
-3. **Amazon MSK** (provisioned, IAM auth) brokers the change stream with one topic per table
-4. **Iceberg Kafka Connect Sink** (v1.4.3) consumes events, handles the Debezium envelope, and writes Iceberg tables
+2. **Debezium Postgres Connector** (v2.7.3.Final) on MSK Connect captures changes and emits Kafka events
+3. **Amazon MSK Serverless** (IAM auth, auto-scaling) brokers the change stream with one topic per table
+4. **Tabular Iceberg Kafka Connect Sink** (v0.6.19) consumes events, handles the Debezium envelope, and writes Iceberg tables
 5. **S3 + Glue Data Catalog** store Iceberg metadata and Parquet data files
 6. **Athena** queries the lakehouse with SQL, including Iceberg time-travel queries
 
@@ -68,13 +68,29 @@ This is v0.1.0—a solid foundation, not a complete production system.
 
 ## Architecture Decisions
 
-### Why Provisioned MSK Instead of MSK Serverless?
+### Why MSK Serverless?
 
-**MSK Connect does not support MSK Serverless** as of December 2024 ([AWS MSK Connect documentation](https://docs.aws.amazon.com/msk/latest/developerguide/msk-connect.html), checked 2024-12-20). MSK Connect requires a provisioned MSK cluster. We use `kafka.t3.small` brokers (the smallest instance type that supports IAM auth) to minimize cost.
+**MSK Connect DOES support MSK Serverless** ([AWS MSK Connect documentation](https://docs.aws.amazon.com/msk/latest/developerguide/msk-connect.html), verified 2026-09-28). Quote: "MSK Connect supports connectors for any Apache Kafka cluster with connectivity to an Amazon VPC, whether it is an MSK cluster or an independently hosted Apache Kafka cluster."
+
+MSK Serverless provides:
+- **No broker management**: Auto-scaling capacity, no instance types to choose
+- **IAM-only authentication**: Simplified security model (no SASL/SCRAM or ACLs)
+- **Pay-per-use**: Cluster-hour + partition-hour pricing (~$0.77/hr for this starter)
+- **Operational simplicity**: Perfect for prototypes and dev environments
+
+**Limitations**:
+- **No auto-topic creation**: Topics must be explicitly created (handled by `scripts/create-topics.sh`)
+- **Partition limits**: 2,400 for non-compacted topics, 120 for compacted (Kafka Connect internals are compacted)
+- **Throughput per partition**: 5 MB/s in, 10 MB/s out (sufficient for CDC)
+
+For production, evaluate provisioned MSK if you need:
+- Broker-level configuration control
+- More than 120 compacted topic partitions
+- Predictable monthly costs vs. usage-based billing
 
 ### Why pgoutput Instead of wal2json or decoderbufs?
 
-The `pgoutput` logical decoding plugin is **built into Postgres 10+** and does not require installing extensions in RDS. It is Debezium's recommended plugin for RDS Postgres ([Debezium Postgres docs](https://debezium.io/documentation/reference/stable/connectors/postgresql.html#postgresql-overview), checked 2024-12-20).
+The `pgoutput` logical decoding plugin is **built into Postgres 10+** and does not require installing extensions in RDS. It is Debezium's recommended plugin for RDS Postgres ([Debezium Postgres docs](https://debezium.io/documentation/reference/stable/connectors/postgresql.html), verified 2026-09-28).
 
 ### Why MSK Connect Instead of Self-Hosted Kafka Connect?
 
