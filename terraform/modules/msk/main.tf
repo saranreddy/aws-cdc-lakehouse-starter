@@ -25,6 +25,7 @@ resource "aws_msk_serverless_cluster" "main" {
 # S3 bucket for Iceberg tables and connector plugins
 resource "aws_s3_bucket" "lakehouse" {
   bucket_prefix = "${var.name_prefix}-lakehouse-"
+  force_destroy = true
 
   tags = {
     Name = "${var.name_prefix}-lakehouse"

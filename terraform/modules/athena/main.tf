@@ -1,6 +1,7 @@
 # S3 bucket for Athena query results
 resource "aws_s3_bucket" "athena_results" {
   bucket_prefix = "${var.name_prefix}-athena-results-"
+  force_destroy = true
 
   tags = {
     Name = "${var.name_prefix}-athena-results"
@@ -43,7 +44,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_results" {
 
 # Athena Workgroup
 resource "aws_athena_workgroup" "main" {
-  name = "${var.name_prefix}-workgroup"
+  name          = "${var.name_prefix}-workgroup"
+  force_destroy = true
 
   configuration {
     enforce_workgroup_configuration    = true

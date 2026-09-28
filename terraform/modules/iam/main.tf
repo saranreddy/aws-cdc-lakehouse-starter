@@ -2,6 +2,12 @@ data "aws_caller_identity" "current" {}
 
 locals {
   account_id = data.aws_caller_identity.current.account_id
+  
+  # Extract cluster name and UUID from cluster ARN for topic/group ARNs
+  # Cluster ARN format: arn:aws:kafka:region:account:cluster/name/uuid
+  cluster_name_parts = split("/", var.msk_cluster_arn)
+  cluster_name       = local.cluster_name_parts[1]
+  cluster_uuid       = local.cluster_name_parts[2]
 }
 
 # IAM role for Debezium connector
@@ -49,9 +55,10 @@ resource "aws_iam_role_policy" "debezium_connector" {
           "kafka-cluster:CreateTopic",
           "kafka-cluster:DescribeTopic",
           "kafka-cluster:WriteData",
+          "kafka-cluster:WriteDataIdempotently",
           "kafka-cluster:ReadData"
         ]
-        Resource = "arn:aws:kafka:${var.region}:${local.account_id}:topic/${split("/", var.msk_cluster_arn)[1]}/*"
+        Resource = "arn:aws:kafka:${var.region}:${local.account_id}:topic/${local.cluster_name}/${local.cluster_uuid}/*"
       },
       {
         Sid    = "MSKGroupAccess"
@@ -60,7 +67,21 @@ resource "aws_iam_role_policy" "debezium_connector" {
           "kafka-cluster:AlterGroup",
           "kafka-cluster:DescribeGroup"
         ]
-        Resource = "arn:aws:kafka:${var.region}:${local.account_id}:group/${split("/", var.msk_cluster_arn)[1]}/debezium-*"
+        # Include both Connect internal groups and connector-specific groups
+        Resource = [
+          "arn:aws:kafka:${var.region}:${local.account_id}:group/${local.cluster_name}/${local.cluster_uuid}/__amazon_msk_connect_*",
+          "arn:aws:kafka:${var.region}:${local.account_id}:group/${local.cluster_name}/${local.cluster_uuid}/connect-*",
+          "arn:aws:kafka:${var.region}:${local.account_id}:group/${local.cluster_name}/${local.cluster_uuid}/debezium-*"
+        ]
+      },
+      {
+        Sid    = "MSKTransactionalIdAccess"
+        Effect = "Allow"
+        Action = [
+          "kafka-cluster:DescribeTransactionalId",
+          "kafka-cluster:AlterTransactionalId"
+        ]
+        Resource = "arn:aws:kafka:${var.region}:${local.account_id}:transactional-id/${local.cluster_name}/${local.cluster_uuid}/*"
       },
       {
         Sid    = "S3PluginAccess"
@@ -154,9 +175,10 @@ resource "aws_iam_role_policy" "iceberg_connector" {
           "kafka-cluster:CreateTopic",
           "kafka-cluster:DescribeTopic",
           "kafka-cluster:WriteData",
+          "kafka-cluster:WriteDataIdempotently",
           "kafka-cluster:ReadData"
         ]
-        Resource = "arn:aws:kafka:${var.region}:${local.account_id}:topic/${split("/", var.msk_cluster_arn)[1]}/*"
+        Resource = "arn:aws:kafka:${var.region}:${local.account_id}:topic/${local.cluster_name}/${local.cluster_uuid}/*"
       },
       {
         Sid    = "MSKGroupAccess"
@@ -165,7 +187,22 @@ resource "aws_iam_role_policy" "iceberg_connector" {
           "kafka-cluster:AlterGroup",
           "kafka-cluster:DescribeGroup"
         ]
-        Resource = "arn:aws:kafka:${var.region}:${local.account_id}:group/${split("/", var.msk_cluster_arn)[1]}/iceberg-*"
+        # Include Connect internal groups and Iceberg-specific groups
+        Resource = [
+          "arn:aws:kafka:${var.region}:${local.account_id}:group/${local.cluster_name}/${local.cluster_uuid}/__amazon_msk_connect_*",
+          "arn:aws:kafka:${var.region}:${local.account_id}:group/${local.cluster_name}/${local.cluster_uuid}/connect-*",
+          "arn:aws:kafka:${var.region}:${local.account_id}:group/${local.cluster_name}/${local.cluster_uuid}/cg-control-*",
+          "arn:aws:kafka:${var.region}:${local.account_id}:group/${local.cluster_name}/${local.cluster_uuid}/iceberg-*"
+        ]
+      },
+      {
+        Sid    = "MSKTransactionalIdAccess"
+        Effect = "Allow"
+        Action = [
+          "kafka-cluster:DescribeTransactionalId",
+          "kafka-cluster:AlterTransactionalId"
+        ]
+        Resource = "arn:aws:kafka:${var.region}:${local.account_id}:transactional-id/${local.cluster_name}/${local.cluster_uuid}/*"
       },
       {
         Sid    = "S3PluginAccess"
