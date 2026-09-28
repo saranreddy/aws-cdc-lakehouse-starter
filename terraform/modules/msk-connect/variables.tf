@@ -48,13 +48,13 @@ variable "iceberg_role_arn" {
   type        = string
 }
 
-variable "rds_endpoint" {
-  description = "RDS endpoint"
+variable "rds_address" {
+  description = "RDS instance address (host only)"
   type        = string
 }
 
 variable "rds_port" {
-  description = "RDS port"
+  description = "RDS instance port"
   type        = number
 }
 

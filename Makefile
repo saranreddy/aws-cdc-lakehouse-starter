@@ -87,9 +87,9 @@ validate:
 
 lint:
 	@echo "Running shellcheck..."
-	@shellcheck scripts/*.sh || true
+	@shellcheck scripts/*.sh
 	@echo "Running Python linters..."
-	@python3 -m pylint scripts/*.py || true
+	@python3 -m pylint scripts/*.py
 
 test:
 	@echo "Running Python unit tests..."

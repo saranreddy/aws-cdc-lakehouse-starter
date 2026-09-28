@@ -18,18 +18,21 @@ resource "aws_db_parameter_group" "postgres" {
   family      = "postgres16"
 
   parameter {
-    name  = "rds.logical_replication"
-    value = "1"
+    name         = "rds.logical_replication"
+    value        = "1"
+    apply_method = "pending-reboot"
   }
 
   parameter {
-    name  = "max_replication_slots"
-    value = "5"
+    name         = "max_replication_slots"
+    value        = "5"
+    apply_method = "pending-reboot"
   }
 
   parameter {
-    name  = "max_wal_senders"
-    value = "5"
+    name         = "max_wal_senders"
+    value        = "5"
+    apply_method = "pending-reboot"
   }
 
   parameter {

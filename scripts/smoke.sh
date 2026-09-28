@@ -50,7 +50,7 @@ if ! PGPASSWORD_VALUE=$(aws secretsmanager get-secret-value \
     exit 1
 fi
 
-PGPASSWORD_VALUE=$(python3 -c "import sys, json; print(json.loads('$PGPASSWORD_VALUE')['password'])" 2>/dev/null)
+PGPASSWORD_VALUE=$(echo "$PGPASSWORD_VALUE" | python3 -c "import sys, json; print(json.load(sys.stdin)['password'])" 2>/dev/null)
 export PGPASSWORD="$PGPASSWORD_VALUE"
 
 # Start SSM tunnel

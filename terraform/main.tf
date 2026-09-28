@@ -81,7 +81,7 @@ module "msk_connect" {
   s3_bucket_arn         = module.msk.s3_bucket_arn
   debezium_role_arn     = module.iam.debezium_connector_role_arn
   iceberg_role_arn      = module.iam.iceberg_connector_role_arn
-  rds_endpoint          = module.rds.endpoint
+  rds_address           = module.rds.address
   rds_port              = module.rds.port
   rds_database_name     = module.rds.database_name
   rds_master_username   = module.rds.master_username

@@ -275,6 +275,14 @@ resource "aws_security_group" "msk" {
     description     = "Kafka IAM auth from MSK Connect"
   }
 
+  ingress {
+    from_port       = 9098
+    to_port         = 9098
+    protocol        = "tcp"
+    security_groups = [aws_security_group.bastion.id]
+    description     = "Kafka IAM auth from Bastion"
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -367,6 +375,36 @@ resource "aws_iam_role_policy_attachment" "bastion_ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+# Allow bastion to create and describe Kafka topics
+resource "aws_iam_role_policy" "bastion_kafka" {
+  name = "${var.name_prefix}-bastion-kafka"
+  role = aws_iam_role.bastion.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "kafka-cluster:Connect",
+          "kafka-cluster:DescribeCluster"
+        ]
+        Resource = "arn:aws:kafka:${var.region}:*:cluster/${var.name_prefix}-*/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "kafka-cluster:CreateTopic",
+          "kafka-cluster:DescribeTopic",
+          "kafka-cluster:ReadData",
+          "kafka-cluster:WriteData"
+        ]
+        Resource = "arn:aws:kafka:${var.region}:*:topic/${var.name_prefix}-*/*/*/control-iceberg"
+      }
+    ]
+  })
+}
+
 resource "aws_iam_instance_profile" "bastion" {
   name_prefix = "${var.name_prefix}-bastion-"
   role        = aws_iam_role.bastion.name
@@ -385,7 +423,7 @@ resource "aws_instance" "bastion" {
 
   user_data = <<-EOF
     #!/bin/bash
-    yum install -y postgresql15
+    dnf install -y java-17-amazon-corretto-headless postgresql15
   EOF
 
   metadata_options {

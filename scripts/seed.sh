@@ -52,7 +52,7 @@ if ! PGPASSWORD_VALUE=$(aws secretsmanager get-secret-value \
 fi
 
 # Parse JSON to extract password (safe, doesn't use grep)
-PGPASSWORD_VALUE=$(python3 -c "import sys, json; print(json.loads('$PGPASSWORD_VALUE')['password'])" 2>/dev/null)
+PGPASSWORD_VALUE=$(echo "$PGPASSWORD_VALUE" | python3 -c "import sys, json; print(json.load(sys.stdin)['password'])" 2>/dev/null)
 if [ -z "$PGPASSWORD_VALUE" ]; then
     echo "Error: Failed to parse password from secret"
     exit 1
@@ -149,12 +149,20 @@ SELECT * FROM (VALUES
 ) AS v(order_id, product_name, quantity, unit_price)
 WHERE NOT EXISTS (SELECT 1 FROM public.order_items LIMIT 1);
 
--- Create or recreate publication (idempotent)
-DROP PUBLICATION IF EXISTS cdc_publication;
-CREATE PUBLICATION cdc_publication FOR TABLE 
-    public.customers, 
-    public.orders, 
-    public.order_items;
+-- Create publication (idempotent - only if it doesn't exist)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'cdc_publication') THEN
+        CREATE PUBLICATION cdc_publication FOR TABLE 
+            public.customers, 
+            public.orders, 
+            public.order_items;
+        RAISE NOTICE 'Publication created';
+    ELSE
+        RAISE NOTICE 'Publication already exists';
+    END IF;
+END
+$$;
 
 -- Verify
 SELECT 'Customers: ' || COUNT(*) FROM public.customers
@@ -190,8 +198,8 @@ if [ ! -d /opt/kafka ]; then
     
     curl -fsSL "$KAFKA_URL" -o kafka.tgz
     
-    # Verify SHA512
-    ACTUAL_SHA512=$(shasum -a 512 kafka.tgz | cut -d' ' -f1)
+    # Verify SHA512 (AL2023 has sha512sum)
+    ACTUAL_SHA512=$(sha512sum kafka.tgz | cut -d' ' -f1)
     echo "Expected SHA512: $KAFKA_SHA512"
     echo "Actual SHA512:   $ACTUAL_SHA512"
     
@@ -201,17 +209,29 @@ if [ ! -d /opt/kafka ]; then
     fi
     
     echo "Kafka SHA512 verified successfully"
-    tar -xzf kafka.tgz
-    sudo mv kafka_2.13-${KAFKA_VERSION} /opt/kafka
-    sudo chmod -R 755 /opt/kafka
+    sudo mkdir -p /opt
+    sudo tar -xzf kafka.tgz -C /opt/
+    sudo mv /opt/kafka_2.13-${KAFKA_VERSION} /opt/kafka
     rm kafka.tgz
     
     # Install aws-msk-iam-auth
     IAM_AUTH_VERSION="1.1.9"
     IAM_AUTH_URL="https://github.com/aws/aws-msk-iam-auth/releases/download/v${IAM_AUTH_VERSION}/aws-msk-iam-auth-${IAM_AUTH_VERSION}-all.jar"
+    IAM_AUTH_SHA256="16b3fbb2fbc7f0a5e60f2b8152b85c4892ed2459595a6400bc29126d98dcdf78"
     
     curl -fsSL "$IAM_AUTH_URL" -o /tmp/aws-msk-iam-auth.jar
-    # Skip SHA verification for now
+    
+    # Verify SHA256
+    ACTUAL_SHA256=$(sha256sum /tmp/aws-msk-iam-auth.jar | cut -d' ' -f1)
+    echo "Expected SHA256: $IAM_AUTH_SHA256"
+    echo "Actual SHA256:   $ACTUAL_SHA256"
+    
+    if [ "$ACTUAL_SHA256" != "$IAM_AUTH_SHA256" ]; then
+      echo "Error: aws-msk-iam-auth SHA256 mismatch!"
+      exit 1
+    fi
+    
+    echo "aws-msk-iam-auth SHA256 verified successfully"
     sudo mkdir -p /opt/kafka/libs
     sudo mv /tmp/aws-msk-iam-auth.jar /opt/kafka/libs/
 fi
@@ -224,10 +244,10 @@ sasl.jaas.config=software.amazon.msk.auth.iam.IAMLoginModule required;
 sasl.client.callback.handler.class=software.amazon.msk.auth.iam.IAMClientCallbackHandler
 EOF
 
-# Get MSK bootstrap servers from parameter (passed as arg)
-BOOTSTRAP_SERVERS="$1"
+# Bootstrap servers are embedded in the script
+BOOTSTRAP_SERVERS="MSK_BOOTSTRAP_PLACEHOLDER"
 
-# Create control topic (idempotent)
+# Create control topic (idempotent, plain 1-partition topic)
 echo "Creating control-iceberg topic..."
 /opt/kafka/bin/kafka-topics.sh \
     --bootstrap-server "$BOOTSTRAP_SERVERS" \
@@ -235,10 +255,7 @@ echo "Creating control-iceberg topic..."
     --create \
     --if-not-exists \
     --topic control-iceberg \
-    --partitions 1 \
-    --replication-factor -1 \
-    --config cleanup.policy=compact \
-    --config min.compaction.lag.ms=0
+    --partitions 1
 
 echo "Topic created successfully!"
 
@@ -251,15 +268,25 @@ echo "Topic created successfully!"
 KAFKA_EOF
 )
 
+# Replace the bootstrap servers placeholder with actual value
+KAFKA_SCRIPT="${KAFKA_SCRIPT//MSK_BOOTSTRAP_PLACEHOLDER/$MSK_BOOTSTRAP}"
+
+# Build SSM parameters JSON with python3
+SSM_PARAMS=$(python3 -c "import json; print(json.dumps({'commands': ['''$KAFKA_SCRIPT''']}))")
+SSM_PARAMS_FILE=$(mktemp)
+echo "$SSM_PARAMS" > "$SSM_PARAMS_FILE"
+
 # Send command to bastion to create topic
 echo "Sending command to bastion..."
 COMMAND_ID=$(aws ssm send-command \
     --instance-ids "$BASTION_INSTANCE_ID" \
     --document-name "AWS-RunShellScript" \
-    --parameters "commands=[\"$KAFKA_SCRIPT\",\"bootstrap=$MSK_BOOTSTRAP\"]" \
+    --parameters "file://$SSM_PARAMS_FILE" \
     --region "$REGION" \
     --output text \
-    --query 'Command.CommandId' 2>/dev/null)
+    --query 'Command.CommandId')
+
+rm -f "$SSM_PARAMS_FILE"
 
 if [ -z "$COMMAND_ID" ]; then
     echo "Error: Failed to send SSM command"

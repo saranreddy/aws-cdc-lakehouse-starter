@@ -139,8 +139,12 @@ resource "aws_mskconnect_worker_configuration" "debezium" {
     value.converter=org.apache.kafka.connect.json.JsonConverter
     value.converter.schemas.enable=true
     
+    # Enable topic creation by connectors
+    topic.creation.enable=true
+    
     config.providers=secretsmanager
     config.providers.secretsmanager.class=com.amazonaws.kafka.config.providers.SecretsManagerConfigProvider
+    config.providers.secretsmanager.param.region=${var.region}
   EOT
 
   description = "Worker configuration with Secrets Manager config provider"
@@ -207,11 +211,11 @@ resource "aws_mskconnect_connector" "debezium_postgres" {
     "tasks.max"       = "1"
 
     # Database connection
-    "database.hostname" = var.rds_endpoint
+    "database.hostname" = var.rds_address
     "database.port"     = tostring(var.rds_port)
     "database.user"     = var.rds_master_username
-    # Use Secrets Manager config provider (worker config required)
-    "database.password" = "$${secretsmanager:${split(":", var.rds_secret_arn)[6]}:password}"
+    # Use Secrets Manager config provider (URL-encode full ARN)
+    "database.password" = "$${secretsmanager:${replace(replace(var.rds_secret_arn, ":", "%3A"), "/", "%2F")}:password}"
     "database.dbname"   = var.rds_database_name
 
     # Topic naming
@@ -222,6 +226,7 @@ resource "aws_mskconnect_connector" "debezium_postgres" {
     "slot.name"                    = "cdc_lakehouse_slot"
     "publication.name"             = "cdc_publication"
     "publication.autocreate.mode"  = "disabled"
+    "time.precision.mode"          = "connect"
     "tombstones.on.delete"         = "true"
     "provide.transaction.metadata" = "false"
 
@@ -334,28 +339,25 @@ resource "aws_mskconnect_connector" "iceberg_sink" {
     "iceberg.tables.cdc-field"          = "_cdc.op"
     "iceberg.tables.default-id-columns" = "id"
 
-    # Routing
-    "iceberg.tables.route-field"                                      = "_cdc.source.table"
-    "iceberg.table.${var.glue_database_name}.customers.route-regex"   = "customers"
-    "iceberg.table.${var.glue_database_name}.orders.route-regex"      = "orders"
-    "iceberg.table.${var.glue_database_name}.order_items.route-regex" = "order_items"
+    # Routing (_cdc.source is STRING "public.table", not struct)
+    "iceberg.tables.route-field"                                    = "_cdc.source"
+    "iceberg.table.${var.glue_database_name}.customers.route-regex"   = "public\\.customers"
+    "iceberg.table.${var.glue_database_name}.orders.route-regex"      = "public\\.orders"
+    "iceberg.table.${var.glue_database_name}.order_items.route-regex" = "public\\.order_items"
 
     # Catalog configuration (AWS Glue) - per Tabular 0.6.19 docs
-    "iceberg.catalog.catalog-impl" = "org.apache.iceberg.aws.glue.GlueCatalog"
-    "iceberg.catalog.warehouse"    = "s3://${var.s3_bucket_name}/iceberg/"
-    "iceberg.catalog.io-impl"      = "org.apache.iceberg.aws.s3.S3FileIO"
+    "iceberg.catalog.catalog-impl"  = "org.apache.iceberg.aws.glue.GlueCatalog"
+    "iceberg.catalog.warehouse"     = "s3://${var.s3_bucket_name}/iceberg/"
+    "iceberg.catalog.io-impl"       = "org.apache.iceberg.aws.s3.S3FileIO"
+    "iceberg.catalog.client.region" = var.region
 
-    # Table auto-creation
-    "iceberg.tables"                       = "${var.glue_database_name}.customers,${var.glue_database_name}.orders,${var.glue_database_name}.order_items"
-    "iceberg.tables.upsert-mode-enabled"   = "true"
-    "iceberg.tables.evolve-schema-enabled" = "true"
-    "iceberg.tables.auto-create-enabled"   = "true"
-    "iceberg.tables.default-commit-branch" = "main"
-
-    # Format version 2 for upsert support
-    "iceberg.table.${var.glue_database_name}.customers.format-version"   = "2"
-    "iceberg.table.${var.glue_database_name}.orders.format-version"      = "2"
-    "iceberg.table.${var.glue_database_name}.order_items.format-version" = "2"
+    # Table auto-creation with format version 2 for upsert support
+    "iceberg.tables"                             = "${var.glue_database_name}.customers,${var.glue_database_name}.orders,${var.glue_database_name}.order_items"
+    "iceberg.tables.upsert-mode-enabled"         = "true"
+    "iceberg.tables.evolve-schema-enabled"       = "true"
+    "iceberg.tables.auto-create-enabled"         = "true"
+    "iceberg.tables.default-commit-branch"       = "main"
+    "iceberg.tables.auto-create-props.format-version" = "2"
 
     # Converters (match Debezium output)
     "value.converter"                = "org.apache.kafka.connect.json.JsonConverter"
