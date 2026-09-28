@@ -70,8 +70,9 @@ export PATH="$TEST_DIR:$PATH"
 echo "--- Test (a): Clean state ---"
 export TEST_CASE=clean
 cd "$TEST_DIR"
-if bash /workspace/scripts/verify-clean.sh 2>&1 | grep -q "Clean:"; then
-    if bash /workspace/scripts/verify-clean.sh > /dev/null 2>&1; then
+OUTPUT=$(bash /workspace/scripts/verify-clean.sh 2>&1)
+if echo "$OUTPUT" | grep -q "Clean:"; then
+    if echo "$OUTPUT" | tail -1 | grep -q "Clean:"; then
         echo "PASS: Exits 0 and prints 'Clean:'"
     else
         echo "FAIL: Should exit 0"
@@ -79,6 +80,9 @@ if bash /workspace/scripts/verify-clean.sh 2>&1 | grep -q "Clean:"; then
     fi
 else
     echo "FAIL: Should print 'Clean:'"
+    echo "=== Actual output (first 50 lines): ==="
+    echo "$OUTPUT" | head -50
+    echo "=== End output ==="
     exit 1
 fi
 echo ""
