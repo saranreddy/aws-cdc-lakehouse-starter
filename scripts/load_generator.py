@@ -49,7 +49,7 @@ def setup_ssm_tunnel(bastion_id, rds_host, rds_port, local_port=5433):
         "portNumber": [str(rds_port)],
         "localPortNumber": [str(local_port)]
     })
-    
+
     proc = subprocess.Popen(
         [
             'aws', 'ssm', 'start-session',
@@ -60,7 +60,7 @@ def setup_ssm_tunnel(bastion_id, rds_host, rds_port, local_port=5433):
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
     )
-    
+
     # Wait for tunnel
     for _ in range(30):
         try:
@@ -73,7 +73,7 @@ def setup_ssm_tunnel(bastion_id, rds_host, rds_port, local_port=5433):
         except Exception:
             pass
         time.sleep(1)
-    
+
     print("Error: Failed to establish SSM tunnel")
     proc.kill()
     sys.exit(1)
@@ -92,7 +92,7 @@ def connect_db(host, port, database, username, password):
 
 class LoadGenerator:
     """Generate load on the database."""
-    
+
     def __init__(self, conn, rate=10, duration=60):
         self.conn = conn
         self.rate = rate
@@ -103,83 +103,83 @@ class LoadGenerator:
             'deletes': 0,
             'errors': 0
         }
-    
+
     def insert_customer(self, cursor):
         """Insert a random customer."""
         names = ['Alex', 'Blake', 'Casey', 'Drew', 'Ellis', 'Finley', 'Gray', 'Harper']
         domains = ['example.com', 'test.com', 'demo.com']
         name = f"{random.choice(names)} {random.choice(names)}"
         email = f"{name.lower().replace(' ', '.')}_{random.randint(1000, 9999)}@{random.choice(domains)}"
-        
+
         cursor.execute(
             "INSERT INTO public.customers (name, email) VALUES (%s, %s) RETURNING id",
             (name, email)
         )
         return cursor.fetchone()[0]
-    
+
     def insert_order(self, cursor):
         """Insert a random order."""
         cursor.execute("SELECT id FROM public.customers ORDER BY RANDOM() LIMIT 1")
         result = cursor.fetchone()
         if not result:
             return None
-        
+
         customer_id = result[0]
         total_amount = round(random.uniform(10.0, 500.0), 2)
         statuses = ['pending', 'processing', 'shipped', 'completed']
         status = random.choice(statuses)
-        
+
         cursor.execute(
             "INSERT INTO public.orders (customer_id, total_amount, status) VALUES (%s, %s, %s) RETURNING id",
             (customer_id, total_amount, status)
         )
         return cursor.fetchone()[0]
-    
+
     def insert_order_item(self, cursor):
         """Insert a random order item."""
         cursor.execute("SELECT id FROM public.orders ORDER BY RANDOM() LIMIT 1")
         result = cursor.fetchone()
         if not result:
             return None
-        
+
         order_id = result[0]
         products = ['Widget A', 'Widget B', 'Widget C', 'Widget D', 'Widget E', 'Gadget X', 'Gadget Y']
         product_name = random.choice(products)
         quantity = random.randint(1, 10)
         unit_price = round(random.uniform(5.0, 100.0), 2)
-        
+
         cursor.execute(
             "INSERT INTO public.order_items (order_id, product_name, quantity, unit_price) VALUES (%s, %s, %s, %s)",
             (order_id, product_name, quantity, unit_price)
         )
         return True
-    
+
     def update_order(self, cursor):
         """Update a random order."""
         statuses = ['pending', 'processing', 'shipped', 'completed', 'cancelled']
         new_status = random.choice(statuses)
-        
+
         cursor.execute(
             "UPDATE public.orders SET status = %s WHERE id IN (SELECT id FROM public.orders ORDER BY RANDOM() LIMIT 1)",
             (new_status,)
         )
         return cursor.rowcount > 0
-    
+
     def delete_order_item(self, cursor):
         """Delete a random order item."""
         cursor.execute("SELECT id FROM public.order_items ORDER BY RANDOM() LIMIT 1")
         result = cursor.fetchone()
         if not result:
             return False
-        
+
         cursor.execute("DELETE FROM public.order_items WHERE id = %s", (result[0],))
         return cursor.rowcount > 0
-    
+
     def run(self):
         """Run the load generator."""
         print(f"Starting load generator: {self.rate} ops/sec for {self.duration} seconds")
         print("")
-        
+
         start_time = time.time()
         operations = [
             (0.3, self.insert_customer, 'customer'),
@@ -188,11 +188,11 @@ class LoadGenerator:
             (0.1, self.update_order, 'update'),
             (0.1, self.delete_order_item, 'delete')
         ]
-        
+
         try:
             while time.time() - start_time < self.duration:
                 iter_start = time.time()
-                
+
                 with self.conn.cursor() as cursor:
                     # Pick operation based on weights
                     rand = random.random()
@@ -203,7 +203,7 @@ class LoadGenerator:
                             try:
                                 result = op(cursor)
                                 self.conn.commit()
-                                
+
                                 if op_type in ['customer', 'order', 'order_item']:
                                     self.stats['inserts'] += 1
                                 elif op_type == 'update':
@@ -216,19 +216,19 @@ class LoadGenerator:
                                 if self.stats['errors'] < 5:
                                     print(f"Error: {e}")
                             break
-                
+
                 # Rate limiting
                 elapsed = time.time() - iter_start
                 sleep_time = max(0, (1.0 / self.rate) - elapsed)
                 time.sleep(sleep_time)
-                
+
                 # Progress
                 if int(time.time() - start_time) % 10 == 0:
                     print(f"Progress: {int(time.time() - start_time)}s / {self.duration}s")
-        
+
         except KeyboardInterrupt:
             print("\nInterrupted by user")
-        
+
         print("")
         print("=== Load Generator Summary ===")
         print(f"  Inserts: {self.stats['inserts']}")
@@ -244,10 +244,10 @@ def main():
     parser.add_argument('--rate', type=int, default=10, help='Operations per second')
     parser.add_argument('--duration', type=int, default=60, help='Duration in seconds')
     args = parser.parse_args()
-    
+
     print("Getting Terraform outputs...")
     outputs = get_terraform_outputs()
-    
+
     rds_endpoint = outputs['rds_endpoint'].split(':')[0]
     rds_port = int(outputs['rds_port'])
     rds_database = outputs['rds_database_name']
@@ -255,21 +255,21 @@ def main():
     rds_secret_arn = outputs['rds_secret_arn']
     bastion_instance_id = outputs['bastion_instance_id']
     region = outputs['region']
-    
+
     print("Retrieving RDS password...")
     password = get_rds_password(rds_secret_arn, region)
-    
+
     print("Starting SSM tunnel...")
     local_port = 5433
     ssm_proc = setup_ssm_tunnel(bastion_instance_id, rds_endpoint, rds_port, local_port)
-    
+
     try:
         print("Connecting to database...")
         conn = connect_db('localhost', local_port, rds_database, rds_username, password)
-        
+
         generator = LoadGenerator(conn, rate=args.rate, duration=args.duration)
         generator.run()
-        
+
         conn.close()
     finally:
         print("Cleaning up SSM tunnel...")

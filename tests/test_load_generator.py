@@ -135,10 +135,11 @@ class TestHelperFunctions(unittest.TestCase):
             'SecretString': '{"password": "test_password_123"}'
         }
         
-        password = get_rds_password('arn:aws:secretsmanager:us-east-1:123456789012:secret:test')
+        password = get_rds_password('arn:aws:secretsmanager:us-east-1:123456789012:secret:test', 'us-east-1')
         
         self.assertEqual(password, 'test_password_123')
         mock_client.get_secret_value.assert_called_once()
+        mock_boto_client.assert_called_once_with('secretsmanager', region_name='us-east-1')
 
 
 if __name__ == '__main__':
