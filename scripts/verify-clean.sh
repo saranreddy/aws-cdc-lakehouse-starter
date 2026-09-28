@@ -44,10 +44,11 @@ else
     echo "OK"
 fi
 
-# Check MSK clusters
-echo -n "Checking MSK clusters... "
-MSK_CLUSTERS=$(aws kafka list-clusters \
+# Check MSK Serverless clusters  
+echo -n "Checking MSK Serverless clusters... "
+MSK_CLUSTERS=$(aws kafka list-clusters-v2 \
     --region "$REGION" \
+    --cluster-type-filter SERVERLESS \
     --query "ClusterInfoList[?starts_with(ClusterName, '$NAME_PREFIX')].ClusterName" \
     --output text 2>/dev/null || echo "")
 

@@ -59,13 +59,13 @@ output "bastion_instance_id" {
 }
 
 output "debezium_connector_name" {
-  description = "Debezium source connector name"
-  value       = module.msk_connect.debezium_connector_name
+  description = "Debezium source connector name (if enabled)"
+  value       = var.enable_connectors ? module.msk_connect[0].debezium_connector_name : null
 }
 
 output "iceberg_connector_name" {
-  description = "Iceberg sink connector name"
-  value       = module.msk_connect.iceberg_connector_name
+  description = "Iceberg sink connector name (if enabled)"
+  value       = var.enable_connectors ? module.msk_connect[0].iceberg_connector_name : null
 }
 
 output "vpc_id" {

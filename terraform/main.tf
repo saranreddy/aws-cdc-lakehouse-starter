@@ -66,7 +66,9 @@ module "glue" {
 }
 
 # MSK Connect: Debezium source and Iceberg sink connectors
+# Only created when enable_connectors=true (after seed)
 module "msk_connect" {
+  count  = var.enable_connectors ? 1 : 0
   source = "./modules/msk-connect"
 
   name_prefix           = var.name_prefix

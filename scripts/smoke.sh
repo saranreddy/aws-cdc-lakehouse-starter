@@ -111,7 +111,12 @@ while [ $(($(date +%s) - POLL_START)) -lt $MAX_WAIT ]; do
             RESULTS=$(aws athena get-query-results \
                 --query-execution-id "$QUERY_ID" \
                 --region "$REGION" \
-                --output text 2>/dev/null | grep -c "$MARKER" || echo "0")
+                --output text 2>/dev/null | grep -c "$MARKER" 2>/dev/null || true)
+            
+            # Handle empty result
+            if [ -z "$RESULTS" ]; then
+                RESULTS=0
+            fi
             
             if [ "$RESULTS" -gt 0 ]; then
                 FOUND=1
@@ -184,7 +189,12 @@ while [ $(($(date +%s) - UPDATE_START)) -lt $MAX_WAIT ]; do
             RESULTS=$(aws athena get-query-results \
                 --query-execution-id "$QUERY_ID" \
                 --region "$REGION" \
-                --output text 2>/dev/null | grep -c "Updated" || echo "0")
+                --output text 2>/dev/null | grep -c "Updated" 2>/dev/null || true)
+            
+            # Handle empty result
+            if [ -z "$RESULTS" ]; then
+                RESULTS=0
+            fi
             
             if [ "$RESULTS" -gt 0 ]; then
                 UPDATE_FOUND=1
@@ -250,7 +260,12 @@ while [ $(($(date +%s) - DELETE_START)) -lt $MAX_WAIT ]; do
             RESULTS=$(aws athena get-query-results \
                 --query-execution-id "$QUERY_ID" \
                 --region "$REGION" \
-                --output text 2>/dev/null | grep -c "$MARKER" || echo "0")
+                --output text 2>/dev/null | grep -c "$MARKER" 2>/dev/null || true)
+            
+            # Handle empty result  
+            if [ -z "$RESULTS" ]; then
+                RESULTS=0
+            fi
             
             if [ "$RESULTS" -eq 0 ]; then
                 DELETE_FOUND=1

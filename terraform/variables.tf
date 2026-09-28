@@ -32,3 +32,10 @@ variable "allowed_cidr_blocks" {
   type        = list(string)
   default     = []
 }
+
+variable "enable_connectors" {
+  description = "Enable MSK Connect connectors (set false for initial apply, true after seed)"
+  type        = bool
+  default     = false
+}
+
