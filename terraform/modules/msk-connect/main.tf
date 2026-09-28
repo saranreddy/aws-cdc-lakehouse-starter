@@ -276,7 +276,7 @@ resource "aws_mskconnect_connector" "debezium_postgres" {
   }
 
   depends_on = [aws_mskconnect_custom_plugin.debezium]
-  
+
   lifecycle {
     replace_triggered_by = [
       aws_mskconnect_custom_plugin.debezium.id,

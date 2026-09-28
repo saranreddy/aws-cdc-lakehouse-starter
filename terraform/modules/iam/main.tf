@@ -2,7 +2,7 @@ data "aws_caller_identity" "current" {}
 
 locals {
   account_id = data.aws_caller_identity.current.account_id
-  
+
   # Extract cluster name and UUID from cluster ARN for topic/group ARNs
   # Cluster ARN format: arn:aws:kafka:region:account:cluster/name/uuid
   cluster_name_parts = split("/", var.msk_cluster_arn)
