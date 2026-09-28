@@ -56,12 +56,9 @@ resource "aws_cloudwatch_log_group" "postgresql" {
   name              = "/aws/rds/instance/${var.name_prefix}-postgres-${var.random_suffix}/postgresql"
   retention_in_days = 7
 
-  tags = merge(
-    var.common_tags,
-    {
-      Name = "${var.name_prefix}-rds-postgresql-logs"
-    }
-  )
+  tags = {
+    Name = "${var.name_prefix}-rds-postgresql-logs"
+  }
 }
 
 resource "aws_db_instance" "postgres" {
