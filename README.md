@@ -237,23 +237,28 @@ Also explains Debezium replication slot behavior and WAL growth risks.
 
 ## Cost Breakdown
 
-Based on **AWS us-east-1 pricing as of December 2024**:
+Based on **AWS us-east-1 pricing as of 2026-09-28** ([pricing pages verified](https://aws.amazon.com/pricing/)):
 
-| Resource | Cost | Pricing Page (checked 2024-12-20) |
+| Resource | Cost | Pricing Page (verified 2026-09-28) |
 |----------|------|----------------------------------|
 | RDS db.t4g.micro | ~$0.016/hour | [RDS Pricing](https://aws.amazon.com/rds/postgresql/pricing/) |
 | RDS storage (20 GB gp3) | ~$0.003/hour | [RDS Pricing](https://aws.amazon.com/rds/postgresql/pricing/) |
-| MSK kafka.t3.small x2 | ~$0.190/hour | [MSK Pricing](https://aws.amazon.com/msk/pricing/) |
-| MSK storage (10 GB/broker) | ~$0.003/hour | [MSK Pricing](https://aws.amazon.com/msk/pricing/) |
-| MSK Connect (2 MCU) | ~$0.220/hour | [MSK Connect Pricing](https://aws.amazon.com/msk/pricing/) |
-| EC2 t3.micro bastion | ~$0.010/hour | [EC2 Pricing](https://aws.amazon.com/ec2/pricing/on-demand/) |
-| Interface endpoints (8) | ~$0.080/hour | [VPC Pricing](https://aws.amazon.com/vpc/pricing/) |
+| MSK Serverless cluster-hour | $0.75/hour | [MSK Pricing](https://aws.amazon.com/msk/pricing/) |
+| MSK Serverless partition-hours (15) | ~$0.023/hour | [MSK Pricing](https://aws.amazon.com/msk/pricing/) |
+| MSK Connect (2 MCU) | ~$0.22/hour | [MSK Connect Pricing](https://aws.amazon.com/msk/pricing/) |
+| EC2 t3.micro bastion | ~$0.0104/hour | [EC2 Pricing](https://aws.amazon.com/ec2/pricing/on-demand/) |
+| Interface endpoints (6 × 2 AZs) | ~$0.12/hour | [VPC Pricing](https://aws.amazon.com/vpc/pricing/) |
 | S3 storage | ~$0.023/GB/month | [S3 Pricing](https://aws.amazon.com/s3/pricing/) |
 | Athena queries | ~$5/TB scanned | [Athena Pricing](https://aws.amazon.com/athena/pricing/) |
 | CloudWatch Logs | ~$0.50/GB ingested | [CloudWatch Pricing](https://aws.amazon.com/cloudwatch/pricing/) |
 
-**Total estimated hourly cost**: ~$0.54/hour  
-**Estimated cost for 1-hour test**: ~$0.60
+**Total estimated hourly cost**: ~$1.14/hour  
+**Estimated cost for 1-hour test**: ~$1.20
+
+**MSK Serverless breakdown**:
+- Cluster-hour: $0.75
+- 15 partition-hours (5 compacted + 15 non-compacted partitions): 15 × $0.0015 = $0.0225
+- Data transfer charges minimal for test workloads
 
 **After `make destroy`**: Cost drops to ~$0 within minutes. S3 and CloudWatch Logs charges are minimal unless you store large amounts of data or logs.
 
