@@ -52,8 +52,14 @@ RDS_PORT=$(terraform output -raw rds_port)
 RDS_DB=$(terraform output -raw rds_database_name)
 RDS_USER=$(terraform output -raw rds_master_username)
 SECRET_ARN=$(terraform output -raw rds_secret_arn)
+REGION=$(terraform output -raw region)
 
-export PGPASSWORD=$(aws secretsmanager get-secret-value --secret-id "$SECRET_ARN" --query SecretString --output text | grep -o '"password":"[^"]*' | cut -d'"' -f4)
+# Get password via python (CLI v1 compatible)
+export PGPASSWORD=$(aws secretsmanager get-secret-value \
+  --secret-id "$SECRET_ARN" \
+  --region "$REGION" \
+  --query SecretString \
+  --output text | python3 -c "import sys, json; print(json.loads(input())['password'])")
 
 aws ssm start-session \
   --target "$BASTION_ID" \
@@ -68,6 +74,15 @@ cd ..
 ```
 
 Run the query above in the `psql` session.
+
+### wal_sender_timeout Configuration
+
+This starter sets `wal_sender_timeout = 0` in the RDS parameter group, which **disables the timeout**. This means:
+- Debezium can reconnect after long network interruptions without losing the replication slot
+- The slot will not be automatically dropped due to timeout
+- **Trade-off**: If Debezium is permanently stopped, the slot will hold WAL indefinitely
+
+For production, consider a non-zero timeout (e.g., `60000` ms = 1 minute) to auto-drop slots after prolonged inactivity, but ensure your monitoring and restart procedures can handle the resulting resnapshot.
 
 ## Understanding WAL Growth
 

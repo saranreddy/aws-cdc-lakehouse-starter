@@ -7,7 +7,7 @@ This runbook covers how to reset the Iceberg sink connector's consumer group to 
 The Iceberg sink connector maintains a consumer group offset in Kafka. To replay events:
 1. Stop the connector
 2. Delete the Iceberg table (or create a new one)
-3. Reset the consumer group to `earliest`
+3. Reset the consumer group to `earliest` (via Kafka tools on bastion)
 4. Restart the connector
 
 The connector will re-consume all events from the Kafka topics and rebuild the Iceberg table.
@@ -31,7 +31,10 @@ Use replay when:
 
 ```bash
 cd terraform
-ICEBERG_CONNECTOR_ARN=$(aws kafkaconnect list-connectors --region us-east-1 --query "connectors[?contains(connectorName, 'iceberg')].connectorArn" --output text)
+ICEBERG_CONNECTOR_ARN=$(aws kafkaconnect list-connectors \
+  --region us-east-1 \
+  --query "connectors[?contains(connectorName, 'iceberg')].connectorArn" \
+  --output text)
 
 echo "Stopping connector..."
 aws kafkaconnect delete-connector \
@@ -40,14 +43,19 @@ aws kafkaconnect delete-connector \
 
 # Wait for deletion
 while true; do
-  STATE=$(aws kafkaconnect describe-connector --connector-arn "$ICEBERG_CONNECTOR_ARN" --region us-east-1 --query 'connectorState' --output text 2>&1)
-  if echo "$STATE" | grep -q "NotFoundException"; then
+  STATE=$(aws kafkaconnect describe-connector \
+    --connector-arn "$ICEBERG_CONNECTOR_ARN" \
+    --region us-east-1 \
+    --query 'connectorState' \
+    --output text 2>&1 || echo "DELETED")
+  if echo "$STATE" | grep -q "NotFoundException\|DELETED"; then
     echo "Connector deleted."
     break
   fi
   echo "State: $STATE"
   sleep 10
 done
+cd ..
 ```
 
 **Warning**: `delete-connector` is permanent. You'll need to recreate the connector (via Terraform) after resetting offsets.
@@ -57,52 +65,90 @@ done
 If you want a fresh table:
 
 ```bash
+cd terraform
 GLUE_DB=$(terraform output -raw glue_database_name)
 BUCKET=$(terraform output -raw s3_bucket_name)
+REGION=$(terraform output -raw region)
 
-# Drop Glue table
-aws glue delete-table --database-name "$GLUE_DB" --name "customers" --region us-east-1 || true
-aws glue delete-table --database-name "$GLUE_DB" --name "orders" --region us-east-1 || true
-aws glue delete-table --database-name "$GLUE_DB" --name "order_items" --region us-east-1 || true
+# Drop Glue tables
+aws glue delete-table --database-name "$GLUE_DB" --name "customers" --region "$REGION" 2>/dev/null || true
+aws glue delete-table --database-name "$GLUE_DB" --name "orders" --region "$REGION" 2>/dev/null || true
+aws glue delete-table --database-name "$GLUE_DB" --name "order_items" --region "$REGION" 2>/dev/null || true
 
 # Delete S3 data
 aws s3 rm "s3://$BUCKET/iceberg/" --recursive
+cd ..
 ```
 
 If you skip this step, replaying will overwrite existing data (upsert mode).
 
 ### 3. Reset Consumer Group Offsets
 
-MSK Connect does not provide a built-in way to reset consumer group offsets. You need to use Kafka tools:
-
-**Option A**: Use `kafka-consumer-groups.sh` from a Kafka client:
-
-1. Launch a temporary EC2 instance in the VPC with Kafka tools installed
-2. Download Kafka binaries (matching MSK version 3.5.1)
-3. Configure IAM authentication for the Kafka client
-4. Run:
+MSK Connect does not provide a built-in way to reset consumer group offsets. Use Kafka tools on the bastion:
 
 ```bash
-kafka-consumer-groups.sh \
-  --bootstrap-server <MSK_BOOTSTRAP_BROKERS> \
-  --command-config client.properties \
-  --group iceberg-sink-group \
-  --reset-offsets \
-  --to-earliest \
-  --all-topics \
-  --execute
+cd terraform
+BASTION_ID=$(terraform output -raw bastion_instance_id)
+MSK_BOOTSTRAP=$(terraform output -raw msk_bootstrap_brokers)
+REGION=$(terraform output -raw region)
+
+# Send command to bastion to reset consumer group
+COMMAND_ID=$(aws ssm send-command \
+  --instance-ids "$BASTION_ID" \
+  --document-name "AWS-RunShellScript" \
+  --parameters "commands=['
+    # The connector creates its own consumer group when first started
+    # For a fresh start, simply deleting and recreating the connector is sufficient
+    # Or manually reset:
+    CONNECTOR_NAME=\"cdc-lakehouse-iceberg-\"
+    GROUP_NAME=\"connect-\${CONNECTOR_NAME}*\"
+    
+    /opt/kafka/bin/kafka-consumer-groups.sh \
+      --bootstrap-server $MSK_BOOTSTRAP \
+      --command-config /tmp/client.properties \
+      --group \$GROUP_NAME \
+      --reset-offsets \
+      --to-earliest \
+      --all-topics \
+      --execute
+  ']" \
+  --region "$REGION" \
+  --query 'Command.CommandId' \
+  --output text)
+
+# Wait for command completion
+sleep 15
+STATUS=$(aws ssm get-command-invocation \
+  --command-id "$COMMAND_ID" \
+  --instance-id "$BASTION_ID" \
+  --region "$REGION" \
+  --query 'Status' \
+  --output text)
+
+echo "Reset status: $STATUS"
+
+if [ "$STATUS" = "Success" ]; then
+  aws ssm get-command-invocation \
+    --command-id "$COMMAND_ID" \
+    --instance-id "$BASTION_ID" \
+    --region "$REGION" \
+    --query 'StandardOutputContent' \
+    --output text
+fi
+cd ..
 ```
 
-**Option B**: Simplify by deleting and recreating the connector:
+**Note**: The consumer group name is auto-generated by MSK Connect. It typically follows the pattern `connect-<connector-name>`. If the connector hasn't been started yet, there's no consumer group to reset.
 
-Since the connector is already deleted (step 1), Terraform will recreate it with a fresh consumer group. The connector configuration includes `consumer.auto.offset.reset=earliest`, so it will automatically start from the beginning if no offset is found.
+**Simpler Alternative**: Since the connector is already deleted (step 1), Terraform will recreate it with a fresh consumer group. The connector configuration includes `consumer.auto.offset.reset=earliest` (if configured), so it will automatically start from the beginning if no offset is found.
 
 ### 4. Recreate the Iceberg Sink Connector
 
 Run Terraform to recreate the connector:
 
 ```bash
-terraform apply -auto-approve
+cd terraform
+terraform apply -var='enable_connectors=true' -auto-approve
 cd ..
 ```
 
@@ -110,10 +156,20 @@ This recreates the MSK Connect connector. Since the consumer group was deleted (
 
 ### 5. Monitor the Replay
 
-Check connector logs:
+Check connector logs (CLI v1 compatible):
 
 ```bash
-aws logs tail /aws/msk-connect/cdc-lakehouse-iceberg- --follow --region us-east-1
+cd terraform
+REGION=$(terraform output -raw region)
+
+# Get recent log events
+aws logs filter-log-events \
+  --log-group-name "/aws/msk-connect/cdc-lakehouse-iceberg-" \
+  --start-time $(($(date +%s) - 3600)) \
+  --region "$REGION" \
+  --query 'events[*].message' \
+  --output text | grep -i "consumer\|offset\|processing"
+cd ..
 ```
 
 Look for:
@@ -127,11 +183,26 @@ Look for:
 Query Athena:
 
 ```bash
-aws athena start-query-execution \
+cd terraform
+ATHENA_DB=$(terraform output -raw glue_database_name)
+ATHENA_WG=$(terraform output -raw athena_workgroup_name)
+REGION=$(terraform output -raw region)
+
+QUERY_ID=$(aws athena start-query-execution \
   --query-string "SELECT COUNT(*) FROM customers" \
-  --query-execution-context "Database=cdc-lakehouse_lakehouse" \
-  --work-group "cdc-lakehouse-workgroup" \
-  --region us-east-1
+  --query-execution-context "Database=$ATHENA_DB" \
+  --work-group "$ATHENA_WG" \
+  --region "$REGION" \
+  --query 'QueryExecutionId' \
+  --output text)
+
+sleep 5
+
+aws athena get-query-results \
+  --query-execution-id "$QUERY_ID" \
+  --region "$REGION" \
+  --output table
+cd ..
 ```
 
 The row count should match the number of distinct customers in Postgres (after upserts and deletes).
@@ -140,16 +211,16 @@ The row count should match the number of distinct customers in Postgres (after u
 
 Replay time depends on:
 - Number of events in Kafka topics
-- Kafka partition count (this starter uses 1 partition per topic)
+- Kafka partition count (this starter uses 3 partitions per topic)
 - Iceberg sink throughput (1 MCU = ~100 MB/s)
 - Number of tables
 
 For the seed data (5 customers, 5 orders, 8 order items):
-- Replay takes **1-3 minutes** (snapshot events + any updates)
+- Replay takes **2-5 minutes** (snapshot events + any updates)
 
 For production with millions of events:
 - Replay can take **hours**
-- Consider increasing MCU count temporarily
+- Consider increasing MCU count temporarily via `autoscaling.mcu_count` in Terraform
 - Monitor connector lag in CloudWatch
 
 ## Partial Replay (Single Table)
@@ -158,17 +229,31 @@ To replay only one table:
 
 1. Stop the connector
 2. Delete only the specific Iceberg table in Glue and S3
-3. Reset offsets for only that table's topic:
+3. Reset offsets for only that table's topic (via bastion):
 
 ```bash
-kafka-consumer-groups.sh \
-  --bootstrap-server <MSK_BOOTSTRAP_BROKERS> \
-  --command-config client.properties \
-  --group iceberg-sink-group \
-  --reset-offsets \
-  --to-earliest \
-  --topic cdc-lakehouse.public.customers \
-  --execute
+cd terraform
+BASTION_ID=$(terraform output -raw bastion_instance_id)
+MSK_BOOTSTRAP=$(terraform output -raw msk_bootstrap_brokers)
+REGION=$(terraform output -raw region)
+
+COMMAND_ID=$(aws ssm send-command \
+  --instance-ids "$BASTION_ID" \
+  --document-name "AWS-RunShellScript" \
+  --parameters "commands=['
+    /opt/kafka/bin/kafka-consumer-groups.sh \
+      --bootstrap-server $MSK_BOOTSTRAP \
+      --command-config /tmp/client.properties \
+      --group connect-cdc-lakehouse-iceberg-* \
+      --reset-offsets \
+      --to-earliest \
+      --topic cdc-lakehouse.public.customers \
+      --execute
+  ']" \
+  --region "$REGION" \
+  --query 'Command.CommandId' \
+  --output text)
+cd ..
 ```
 
 4. Restart the connector
@@ -177,13 +262,13 @@ The connector will replay only the `customers` topic and rebuild only the `custo
 
 ## Replay from a Specific Timestamp
 
-To replay from a specific point in time (e.g., after a schema change):
+To replay from a specific point in time (e.g., after a schema change), use the bastion:
 
 ```bash
-kafka-consumer-groups.sh \
+/opt/kafka/bin/kafka-consumer-groups.sh \
   --bootstrap-server <MSK_BOOTSTRAP_BROKERS> \
-  --command-config client.properties \
-  --group iceberg-sink-group \
+  --command-config /tmp/client.properties \
+  --group connect-cdc-lakehouse-iceberg-* \
   --reset-offsets \
   --to-datetime "2026-09-28T10:00:00.000" \
   --all-topics \
@@ -226,3 +311,12 @@ Replaying from the beginning is a **destructive operation** that rebuilds Iceber
 - You're testing the pipeline
 
 For production, prefer incremental fixes (e.g., backfill specific rows) over full replay.
+
+## Consumer Group Names
+
+MSK Connect auto-generates consumer group names:
+- `connect-<connector-name>`: Main sink consumer group
+- `cg-control-<connector-name>`: Iceberg control topic consumer group
+- `__amazon_msk_connect_*`: MSK Connect internal groups (offsets, config, status)
+
+Use wildcard matching when resetting offsets to capture all related groups.

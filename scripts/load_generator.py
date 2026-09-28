@@ -33,9 +33,9 @@ def get_terraform_outputs():
         sys.exit(1)
 
 
-def get_rds_password(secret_arn):
+def get_rds_password(secret_arn, region):
     """Retrieve RDS password from Secrets Manager."""
-    client = boto3.client('secretsmanager')
+    client = boto3.client('secretsmanager', region_name=region)
     response = client.get_secret_value(SecretId=secret_arn)
     secret = json.loads(response['SecretString'])
     return secret['password']
@@ -254,9 +254,10 @@ def main():
     rds_username = outputs['rds_master_username']
     rds_secret_arn = outputs['rds_secret_arn']
     bastion_instance_id = outputs['bastion_instance_id']
+    region = outputs['region']
     
     print("Retrieving RDS password...")
-    password = get_rds_password(rds_secret_arn)
+    password = get_rds_password(rds_secret_arn, region)
     
     print("Starting SSM tunnel...")
     local_port = 5433
