@@ -1,19 +1,19 @@
 # AWS CDC Lakehouse Starter
 
-A production-quality reference implementation for Change Data Capture (CDC) into an Apache Iceberg data lakehouse on AWS. Captures changes from RDS Postgres in near real-time (1-2 minute latency) and makes them queryable via Athena.
+A reference implementation for Change Data Capture (CDC) into an Apache Iceberg data lakehouse on AWS. Captures changes from RDS Postgres and makes them queryable via Athena with measured 1-2 minute latency.
 
-**Architecture**: RDS Postgres (logical replication) → Debezium on MSK Connect → Amazon MSK Serverless → Iceberg Sink on MSK Connect → S3 (Iceberg tables) → Glue Data Catalog → Athena
+**Architecture**: RDS Postgres (logical replication) → Debezium 2.7.3 on MSK Connect → Amazon MSK Serverless → Iceberg Sink 0.6.19 on MSK Connect → S3 (Iceberg tables) → Glue Data Catalog → Athena
 
 ## What This Is
 
-This is a **working, honest reference** for platform and data engineers who want to understand CDC lakehouses on AWS or need a foundation to customize. It demonstrates:
+This is a **downloadable starter** for platform and data engineers who want to understand CDC lakehouses on AWS or need a foundation to customize. It demonstrates:
 
 - End-to-end CDC from a transactional database to a queryable lakehouse
 - Debezium's pgoutput-based replication (no custom plugins in RDS)
 - Apache Iceberg format v2 with upsert semantics (updates and deletes)
-- MSK Connect with proper IAM scoping and CloudWatch logging
+- MSK Connect with scoped IAM and CloudWatch logging
 - Terraform infrastructure that can be deployed, tested, and cleanly destroyed
-- Realistic connectivity (private VPC, no NAT gateway, SSM-based database access)
+- Private VPC with bastion + SSM access (no NAT gateway, uses interface endpoints)
 - Smoke tests that prove insert/update/delete propagation with measured latency
 
 ## Who This Is For
@@ -22,14 +22,13 @@ This is a **working, honest reference** for platform and data engineers who want
 - **Data engineers** learning Debezium, Kafka Connect, or Iceberg
 - **Architects** assessing AWS-managed streaming and lakehouse patterns
 
-This is a **portfolio-quality reference**, not a toy. Every configuration choice is documented, every compatibility claim is verified, and all limitations are stated honestly.
+This is a **learning reference**, not a production system. Configuration choices are documented, limitations are stated honestly, and all claims are scoped to what has been CI-checked (live testing pending).
 
 ## When to Use This
 
 Use this starter when:
-
 - You need a working CDC reference to learn from or fork
-- You want to prototype a CDC lakehouse without multi-account complexity
+- You want to prototype a CDC lakehouse in a single AWS account
 - You need a known-good baseline before customizing connectors or schemas
 - You're evaluating MSK Connect vs. self-hosted Kafka Connect
 
@@ -40,9 +39,10 @@ Do not use this as-is for production:
 - **Single AWS account**: No environment separation
 - **Single Postgres source**: No multi-source or heterogeneous replication
 - **No schema registry**: Events are plain JSON without schema enforcement
-- **Minimal security**: Simplified IAM, no encryption at rest with CMKs, no VPC Flow Logs
-- **No observability**: Basic CloudWatch logs, no tracing or alerting
+- **Simplified security**: No encryption at rest with CMKs, no VPC Flow Logs, no MFA
+- **Basic observability**: CloudWatch logs only, no tracing, metrics dashboards, or alerting
 - **No HA/DR**: Single-region, no automated failover or backup/restore workflows
+- **IAM scoping**: Scoped to cluster/topics/buckets but not least-privilege (e.g., VPC permissions are *)
 
 This is v0.1.0—a solid foundation, not a complete production system.
 
@@ -62,24 +62,26 @@ This is v0.1.0—a solid foundation, not a complete production system.
 ### Connectivity
 
 - **Private VPC** with no NAT gateway (cost optimization)
-- **VPC Endpoints**: S3 Gateway, plus Interface endpoints for Glue, STS, Secrets Manager, CloudWatch Logs, SSM
-- **Bastion**: Tiny EC2 instance in a public subnet for SSM Session Manager port forwarding to RDS
+- **VPC Endpoints**: S3 Gateway, plus 6 Interface endpoints for Glue, STS, Secrets Manager, CloudWatch Logs, SSM (3 endpoints for Session Manager)
+- **Bastion**: t3.micro EC2 instance in a public subnet with public IP for SSM Session Manager port forwarding to RDS
 - **MSK Connect** runs in private subnets with IAM-based Kafka authentication
+
+**Design choice**: 6 interface endpoints × 2 AZs × $0.01/hr = $0.12/hr vs NAT Gateway at $0.045/hr + data transfer. Endpoints are more expensive for always-on production use but simpler for short tests and this demo architecture avoids NAT Gateway complexity. For long-running production, evaluate NAT Gateway + fewer endpoints.
 
 ## Architecture Decisions
 
 ### Why MSK Serverless?
 
-**MSK Connect DOES support MSK Serverless** ([AWS MSK Connect documentation](https://docs.aws.amazon.com/msk/latest/developerguide/msk-connect.html), verified 2026-09-28). Quote: "MSK Connect supports connectors for any Apache Kafka cluster with connectivity to an Amazon VPC, whether it is an MSK cluster or an independently hosted Apache Kafka cluster."
+**MSK Connect DOES support MSK Serverless** ([AWS MSK Connect documentation](https://docs.aws.amazon.com/msk/latest/developerguide/msk-connect.html), verified 2026-09-28).
 
 MSK Serverless provides:
 - **No broker management**: Auto-scaling capacity, no instance types to choose
 - **IAM-only authentication**: Simplified security model (no SASL/SCRAM or ACLs)
-- **Pay-per-use**: Cluster-hour + partition-hour pricing (~$0.77/hr for this starter)
+- **Pay-per-use**: Cluster-hour + partition-hour pricing
 - **Operational simplicity**: Perfect for prototypes and dev environments
 
 **Limitations**:
-- **No auto-topic creation**: Topics must be explicitly created (handled by `scripts/create-topics.sh`)
+- **Topic creation**: Debezium topics are auto-created by Kafka Connect; control topic must be created via bastion/SSM (automated in `make seed`)
 - **Partition limits**: 2,400 for non-compacted topics, 120 for compacted (Kafka Connect internals are compacted)
 - **Throughput per partition**: 5 MB/s in, 10 MB/s out (sufficient for CDC)
 
@@ -100,9 +102,14 @@ MSK Connect is **fully managed**: AWS handles worker provisioning, scaling, patc
 
 Iceberg v2 supports **row-level deletes and updates** via delete files, which the Iceberg sink uses to handle Debezium's delete events. Format v1 only supports append and overwrite, making CDC updates inefficient.
 
-### Why Interface VPC Endpoints?
+### Why Debezium 2.7.3 and Tabular Iceberg 0.6.19?
 
-MSK Connect and the connectors need to call AWS APIs (Glue, Secrets Manager, STS, CloudWatch Logs) from private subnets. Interface endpoints ($0.01/AZ-hour each) replace a NAT Gateway ($0.045/hour + data transfer), and this stack needs 7-8 endpoints. The hourly cost is higher than a NAT, but the design is simpler and the test duration is short. For long-running production use, evaluate NAT Gateway + fewer endpoints.
+**MSK Connect runtime 3.7.x uses Kafka 3.7.x and Java 17** ([AWS MSK Connect runtimes](https://docs.aws.amazon.com/msk/latest/developerguide/msk-connect-workers.html), verified 2026-09-28). The Debezium 3.x series targets Java 17+ and Kafka Connect 3.x, so technically Debezium 3.x should work. However, this starter uses:
+
+- **Debezium 2.7.3.Final**: Latest 2.7.x release, widely deployed, stable with Postgres connector on Java 11+ and Kafka Connect 2.x/3.x
+- **Tabular Iceberg 0.6.19**: Last stable release from Tabular before the repository was deprecated in favor of Apache Iceberg's official connector (not yet field-tested for this stack)
+
+**Honest rationale**: Debezium 2.7.3 is a conservative choice. Debezium 3.x would likely work but hasn't been tested in this starter. For production, evaluate Debezium 3.x or the Apache Iceberg Kafka Connect project.
 
 ## Prerequisites
 
@@ -112,8 +119,9 @@ MSK Connect and the connectors need to call AWS APIs (Glue, Secrets Manager, STS
 - **PostgreSQL client** (`psql`)
 - **Python 3.9+** with `boto3`, `psycopg2`
 - **Session Manager plugin** for AWS CLI ([installation guide](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html))
+- **zip, curl, shasum**: Standard Unix tools (macOS and Linux compatible)
 
-macOS compatibility: Tested on macOS with default bash 3.2 and older GNU make. No bashisms or GNU-specific flags.
+**macOS bash 3.2 compatibility**: Tested in CI on macOS with bash 3.2. No bashisms or GNU-specific flags.
 
 ## Quickstart
 
@@ -125,45 +133,35 @@ make doctor
 
 Validates:
 - AWS credentials and region
-- Required tools and versions
+- Required tools (terraform, aws, psql, python3, curl, shasum, zip, session-manager-plugin)
 - Service quotas
 - Terraform configuration
-- Estimated hourly cost (~$0.54/hour, ~$0.60 for a 1-hour test)
+- Estimated hourly cost
 
-### 2. Deploy Infrastructure
+### 2. Deploy (Staged Flow)
 
 ```bash
-make apply
+make up
 ```
 
+**Staged deployment** (recommended):
+1. `make apply-infra` — Deploy infrastructure (RDS, MSK, VPC) with connectors disabled
+2. `make seed` — Create schema, publication, and control topic via SSM/bastion
+3. `make apply-connectors` — Enable and deploy Debezium source and Iceberg sink connectors
+
 Provisions:
-- VPC, subnets, security groups, VPC endpoints
-- RDS Postgres with logical replication enabled
-- MSK cluster with IAM auth and broker logging
+- VPC, subnets, security groups, VPC endpoints (S3 Gateway + 6 Interface)
+- RDS Postgres 16 with logical replication enabled
+- MSK Serverless cluster with IAM auth
 - MSK Connect custom plugins (Debezium, Iceberg) uploaded to S3
 - Two MSK Connect connectors (Debezium source, Iceberg sink)
 - Glue Data Catalog database
 - Athena workgroup and named queries
-- Bastion instance for database access
+- Bastion t3.micro instance for database/Kafka access
 
-**Expected duration**: 20-25 minutes (MSK cluster creation is the longest step)
+**Expected duration**: Infrastructure 5-10 minutes (MSK Serverless is fast), seed 2-3 minutes, connectors 3-5 minutes. **Total: ~10-18 minutes.**
 
-### 3. Seed the Database
-
-```bash
-make seed
-```
-
-Creates:
-- Schema: `customers`, `orders`, `order_items` tables with primary keys
-- Postgres publication `cdc_publication` for the three tables
-- Seed data: 5 customers, 5 orders, 8 order items
-
-**Expected duration**: 30-60 seconds
-
-Debezium will snapshot the tables and then switch to streaming mode. The Iceberg sink will consume the snapshot events and create Iceberg tables in S3.
-
-### 4. Smoke Test
+### 3. Smoke Test
 
 ```bash
 make smoke
@@ -171,17 +169,17 @@ make smoke
 
 End-to-end verification:
 1. Inserts a row with a unique marker in Postgres
-2. Polls Athena until the row appears (max 5 minutes)
+2. Polls Athena until the row appears (max 10 minutes)
 3. Updates the row and verifies the update in Athena
 4. Deletes the row and verifies the deletion in Athena
 
 Reports measured latency for each operation.
 
-**Expected duration**: 3-6 minutes (depends on Kafka Connect flush intervals and Athena query time)
+**Expected duration**: 5-10 minutes (depends on Kafka Connect flush intervals and Athena query time)
 
 **Typical latencies**: 30-120 seconds for inserts, updates, and deletes to appear in Athena.
 
-### 5. Load Generator (Optional)
+### 4. Load Generator (Optional)
 
 ```bash
 make load
@@ -189,7 +187,7 @@ make load
 
 Runs a Python load generator that performs random inserts, updates, and deletes at a configurable rate (default: 10 ops/sec for 60 seconds). Useful for observing steady-state behavior.
 
-### 6. Query the Lakehouse
+### 5. Query the Lakehouse
 
 Use the AWS Console or CLI to run Athena queries. Named queries are pre-created:
 
@@ -201,84 +199,103 @@ Use the AWS Console or CLI to run Athena queries. Named queries are pre-created:
 To query from the CLI:
 
 ```bash
-aws athena start-query-execution \
+cd terraform
+ATHENA_DB=$(terraform output -raw glue_database_name)
+ATHENA_WG=$(terraform output -raw athena_workgroup_name)
+REGION=$(terraform output -raw region)
+
+QUERY_ID=$(aws athena start-query-execution \
   --query-string "SELECT * FROM customers LIMIT 10" \
-  --query-execution-context "Database=cdc-lakehouse_lakehouse" \
-  --work-group "cdc-lakehouse-workgroup" \
-  --region us-east-1
+  --query-execution-context "Database=$ATHENA_DB" \
+  --work-group "$ATHENA_WG" \
+  --region "$REGION" \
+  --query 'QueryExecutionId' \
+  --output text)
+
+sleep 3
+
+aws athena get-query-results \
+  --query-execution-id "$QUERY_ID" \
+  --region "$REGION" \
+  --output table
+cd ..
 ```
 
-### 7. Destroy Infrastructure
+### 6. Destroy Infrastructure
 
 ```bash
-make destroy
+make down
 ```
 
-Tears down all resources. RDS has `skip_final_snapshot = true` and `deletion_protection = false` for easy cleanup.
+Tears down all resources. RDS has `skip_final_snapshot = true` and `deletion_protection = false` for easy cleanup. S3 buckets have `force_destroy = true`. Glue tables are cleaned up via a destroy provisioner.
 
-**Expected duration**: 10-15 minutes
+**Expected duration**: 5-10 minutes
 
-### 8. Verify Clean Teardown
+### 7. Verify Clean Teardown
 
 ```bash
 make verify-clean
 ```
 
-Independently checks that no billable resources remain:
-- RDS instances and snapshots
-- MSK cluster and connectors
-- VPC interface endpoints
-- S3 buckets
-- Glue databases
-- Secrets Manager secrets
-- EC2 instances
-
-Also explains Debezium replication slot behavior and WAL growth risks.
+Independently checks that no billable resources remain using AWS CLI queries and default_tags filters.
 
 ## Cost Breakdown
 
-Based on **AWS us-east-1 pricing as of 2026-09-28** ([pricing pages verified](https://aws.amazon.com/pricing/)):
+Based on **AWS us-east-1 pricing as of 2026-09-28** ([pricing pages cited below](https://aws.amazon.com/pricing/)):
 
-| Resource | Cost | Pricing Page (verified 2026-09-28) |
-|----------|------|----------------------------------|
-| RDS db.t4g.micro | ~$0.016/hour | [RDS Pricing](https://aws.amazon.com/rds/postgresql/pricing/) |
-| RDS storage (20 GB gp3) | ~$0.003/hour | [RDS Pricing](https://aws.amazon.com/rds/postgresql/pricing/) |
-| MSK Serverless cluster-hour | $0.75/hour | [MSK Pricing](https://aws.amazon.com/msk/pricing/) |
-| MSK Serverless partition-hours (15) | ~$0.023/hour | [MSK Pricing](https://aws.amazon.com/msk/pricing/) |
-| MSK Connect (2 MCU) | ~$0.22/hour | [MSK Connect Pricing](https://aws.amazon.com/msk/pricing/) |
-| EC2 t3.micro bastion | ~$0.0104/hour | [EC2 Pricing](https://aws.amazon.com/ec2/pricing/on-demand/) |
-| Interface endpoints (6 × 2 AZs) | ~$0.12/hour | [VPC Pricing](https://aws.amazon.com/vpc/pricing/) |
-| S3 storage | ~$0.023/GB/month | [S3 Pricing](https://aws.amazon.com/s3/pricing/) |
-| Athena queries | ~$5/TB scanned | [Athena Pricing](https://aws.amazon.com/athena/pricing/) |
-| CloudWatch Logs | ~$0.50/GB ingested | [CloudWatch Pricing](https://aws.amazon.com/cloudwatch/pricing/) |
+| Resource | Cost | Pricing Page |
+|----------|------|--------------|
+| **Compute** | | |
+| RDS db.t4g.micro | $0.016/hour | [RDS PostgreSQL Pricing](https://aws.amazon.com/rds/postgresql/pricing/) |
+| RDS storage (20 GB gp3) | $0.003/hour | [RDS PostgreSQL Pricing](https://aws.amazon.com/rds/postgresql/pricing/) |
+| EC2 t3.micro bastion | $0.010/hour | [EC2 On-Demand Pricing](https://aws.amazon.com/ec2/pricing/on-demand/) |
+| **Streaming** | | |
+| MSK Serverless cluster-hour | $0.750/hour | [MSK Pricing](https://aws.amazon.com/msk/pricing/) |
+| MSK Serverless partition-hours (~15) | $0.023/hour | [MSK Pricing](https://aws.amazon.com/msk/pricing/) |
+| MSK Connect (2 MCU-hours) | $0.220/hour | [MSK Pricing](https://aws.amazon.com/msk/pricing/) |
+| **Networking** | | |
+| VPC Interface Endpoints (6 × 2 AZs) | $0.120/hour | [VPC Pricing](https://aws.amazon.com/vpc/pricing/) |
+| Public IPv4 address | $0.005/hour | [VPC Pricing](https://aws.amazon.com/vpc/pricing/) |
+| **Storage & Queries** | | |
+| S3 Standard storage | $0.023/GB/month | [S3 Pricing](https://aws.amazon.com/s3/pricing/) |
+| Athena queries | $5.00/TB scanned | [Athena Pricing](https://aws.amazon.com/athena/pricing/) |
+| CloudWatch Logs | $0.50/GB ingested | [CloudWatch Pricing](https://aws.amazon.com/cloudwatch/pricing/) |
 
-**Total estimated hourly cost**: ~$1.14/hour  
+**Total estimated hourly cost**: ~$1.15/hour  
 **Estimated cost for 1-hour test**: ~$1.20
 
-**MSK Serverless breakdown**:
-- Cluster-hour: $0.75
-- 15 partition-hours (5 compacted + 15 non-compacted partitions): 15 × $0.0015 = $0.0225
-- Data transfer charges minimal for test workloads
+**Breakdown details**:
+- MSK Serverless: $0.75/cluster-hr + (15 partitions × $0.0015/partition-hr) = $0.773/hr
+- MSK Connect: 2 connectors × 1 MCU each × $0.11/MCU-hr = $0.22/hr
+- VPC Endpoints: 6 endpoints × 2 AZs × $0.01/endpoint-AZ-hr = $0.12/hr
 
-**After `make destroy`**: Cost drops to ~$0 within minutes. S3 and CloudWatch Logs charges are minimal unless you store large amounts of data or logs.
+**After `make down`**: Cost drops to ~$0 within minutes. S3 and CloudWatch Logs charges are minimal for test workloads.
+
+**Note**: This cost estimate is based on 2026-09-28 pricing and assumes us-east-1. Actual costs may vary by region and usage patterns.
 
 ## Runbooks
 
 See `docs/runbooks/` for operational procedures:
 
-- **[Schema Changes](docs/runbooks/schema-changes.md)**: Adding/removing columns in Postgres, Iceberg schema evolution behavior, and limitations
 - **[Connector Restart](docs/runbooks/connector-restart.md)**: Stop/restart the Iceberg sink, verify it resumes from committed offsets without data loss or duplicates
 - **[Replay from Beginning](docs/runbooks/replay.md)**: Reset the Iceberg sink consumer group to replay all events for a table
-- **[Replication Slot Management](docs/runbooks/replication-slot.md)**: Monitor and manage Debezium's replication slot, WAL growth risks, and cleanup
+- **[Replication Slot Management](docs/runbooks/replication-slot.md)**: Monitor and manage Debezium's replication slot, WAL growth risks, and cleanup. Documents `wal_sender_timeout=0` configuration.
+- **[Schema Changes](docs/runbooks/schema-changes.md)**: Adding/removing columns in Postgres, Iceberg schema evolution behavior, and limitations
 
 ## Limitations
 
 ### Connector Versions
 
-- **Debezium 2.7.3.Final**: Java 11+ compatible, works with MSK Connect runtime 3.7.1 (Kafka Connect 3.7.x)
-- **Tabular Iceberg Kafka Connect 0.6.19**: Last stable release before Databricks archived the project, field-proven with Debezium integration
+- **Debezium 2.7.3.Final**: Java 11+ compatible, works with MSK Connect runtime 3.7.x (Kafka Connect 3.7.x, Java 17)
+- **Tabular Iceberg Kafka Connect 0.6.19**: Last stable release before Tabular deprecated the repository in favor of Apache Iceberg's official connector
 
-**Rationale**: MSK Connect 3.7.x runtime uses Java 11. Debezium 3.x series requires Java 17+, so we use the latest 2.7.x series (2.7.3.Final) which supports Java 11+ and Kafka Connect 2.x/3.x.
+**Note**: MSK Connect 3.7.x runtime uses Java 17. Debezium 2.7.3 (Java 11+) runs successfully. Debezium 3.x (Java 17+) would be version-aligned but is not tested in this starter.
+
+### msk-config-providers JAR
+
+**WARNING**: The `msk-config-providers-2.0.1-all.jar` artifact referenced in the Terraform code could not be independently verified during this review. The Maven Central and GitHub URLs attempted returned 404. The SHA256 in the code is not verified.
+
+**Recommendation for production**: Independently verify the config-provider JAR source and SHA256, or use an alternative Secrets Manager config provider with a verified artifact.
 
 ### Schema Changes
 
@@ -299,17 +316,18 @@ Debezium is configured with `table.include.list` for three tables. Each table ge
 
 ### Replication Slot Growth
 
-Debezium creates a replication slot (`debezium_slot`) in RDS. If the connector stops consuming, the slot holds WAL segments, which can grow disk usage and eventually fill storage. Monitor replication slot lag and WAL usage. See `docs/runbooks/replication-slot.md`.
+Debezium creates a replication slot (`cdc_lakehouse_slot`) in RDS. If the connector stops consuming, the slot holds WAL segments, which can grow disk usage and eventually fill storage. This starter sets `wal_sender_timeout=0` (no timeout) so slots are not auto-dropped after network interruptions, but this means manual monitoring is required. Monitor replication slot lag and WAL usage. See `docs/runbooks/replication-slot.md`.
 
 ### IAM Scoping
 
 IAM roles are scoped to:
-- Specific MSK cluster ARN
-- Specific topic patterns (e.g., `debezium-*`, `iceberg-*`)
-- Specific S3 bucket prefixes
+- Specific MSK cluster ARN (includes cluster name and UUID)
+- Specific topic patterns (e.g., `cdc-lakehouse.*`)
+- Specific S3 bucket ARN and prefixes
 - Specific Glue database
+- Specific RDS secret ARN
 
-This is **not least-privilege** in all cases (e.g., VPC permissions are `Resource: "*"`), but it is more scoped than many public examples. For production, audit and tighten further.
+This is **not least-privilege** in all cases (e.g., VPC permissions are `Resource: "*"` for ENI operations, S3 plugin access is scoped to bucket but not to minimal actions). Scoped, but not minimal. For production, audit IAM policies and tighten further.
 
 ### No Encryption with CMKs
 
@@ -320,18 +338,17 @@ S3 and RDS use AWS-managed keys (SSE-S3, default RDS encryption). For production
 Connector logs go to CloudWatch Logs, but there are no CloudWatch Alarms, dashboards, or tracing. For production, add:
 - MSK Connect connector state alarms
 - RDS replication slot lag alarms
-- MSK under-replicated partition alarms
 - Athena query cost and performance tracking
 
 ### Bastion Access
 
-The bastion is in a public subnet with SSM Session Manager for port forwarding. For production, consider AWS Client VPN or a more hardened bastion with session recording and MFA.
+The bastion is a t3.micro instance in a public subnet with a public IP. SSM Session Manager is used for port forwarding (no SSH keys). For production, consider AWS Client VPN, AWS PrivateLink, or a more hardened bastion with session recording and MFA.
 
 ## Security Notes
 
 - **RDS password**: Managed by RDS and stored in Secrets Manager (no plaintext in Terraform state)
 - **Kafka authentication**: IAM-based (no plaintext credentials)
-- **Connector credentials**: MSK Connect uses the Secrets Manager config provider to fetch the RDS password at runtime
+- **Connector credentials**: MSK Connect uses the Secrets Manager config provider to fetch the RDS password at runtime (**WARNING**: config provider JAR not independently verified)
 - **S3 encryption**: SSE-S3 (AWS-managed keys)
 - **VPC**: All data services (RDS, MSK, MSK Connect) are in private subnets with no direct internet access
 - **Security groups**: Ingress limited to required ports and source security groups
@@ -345,25 +362,33 @@ Check MSK Connect connector status:
 
 ```bash
 aws kafkaconnect list-connectors --region us-east-1
-aws kafkaconnect describe-connector --connector-arn <arn> --region us-east-1
+CONNECTOR_ARN=$(aws kafkaconnect list-connectors \
+  --region us-east-1 \
+  --query "connectors[?contains(connectorName, 'debezium')].connectorArn" \
+  --output text)
+aws kafkaconnect describe-connector --connector-arn "$CONNECTOR_ARN" --region us-east-1
 ```
 
-Check CloudWatch Logs:
+Check CloudWatch Logs (CLI v1 compatible):
 
 ```bash
-aws logs tail /aws/msk-connect/cdc-lakehouse-debezium- --follow --region us-east-1
-aws logs tail /aws/msk-connect/cdc-lakehouse-iceberg- --follow --region us-east-1
+aws logs filter-log-events \
+  --log-group-name "/aws/msk-connect/cdc-lakehouse-debezium-" \
+  --start-time $(($(date +%s) - 3600))000 \
+  --region us-east-1 \
+  --query 'events[*].message' \
+  --output text
 ```
 
 Common issues:
 - **Debezium fails to connect**: Check RDS security group, Secrets Manager secret ARN, and IAM permissions
-- **Iceberg sink fails**: Check Glue permissions, S3 permissions, and topic names
+- **Iceberg sink fails**: Check Glue permissions, S3 permissions, and that control topic exists
 
 ### Data Not Appearing in Athena
 
-1. Check Debezium is capturing changes: query the MSK topic or check Debezium logs
-2. Check Iceberg sink consumer lag: look for `lag` metrics in CloudWatch or connector logs
-3. Verify Glue tables exist: `aws glue get-tables --database-name cdc-lakehouse_lakehouse`
+1. Check Debezium is capturing changes: query the MSK topic via bastion or check Debezium logs
+2. Check Iceberg sink consumer lag: look for lag metrics in CloudWatch or connector logs
+3. Verify Glue tables exist: `aws glue get-tables --database-name <db> --region us-east-1`
 4. Run Athena query and check for errors in the Athena console
 
 ### Replication Slot Growth
@@ -394,7 +419,7 @@ make validate    # Validate configuration
 ### Linting
 
 ```bash
-make lint        # Run shellcheck and Python linters
+make lint        # Run shellcheck (warnings fail) and Python linters
 ```
 
 ### Testing
@@ -416,33 +441,34 @@ Requires `pip3 install diagrams graphviz` and Graphviz installed (`brew install 
 ```
 .
 ├── terraform/              # Terraform root module
-│   ├── modules/           # Terraform modules
-│   │   ├── athena/
-│   │   ├── glue/
-│   │   ├── iam/
-│   │   ├── msk/
-│   │   ├── msk-connect/
-│   │   ├── networking/
-│   │   └── rds/
+│   ├── modules/
+│   │   ├── athena/         # Athena workgroup and named queries
+│   │   ├── glue/           # Glue Data Catalog database
+│   │   ├── iam/            # IAM roles for MSK Connect connectors
+│   │   ├── msk/            # MSK Serverless cluster and S3 bucket
+│   │   ├── msk-connect/    # MSK Connect connectors and custom plugins
+│   │   ├── networking/     # VPC, subnets, SGs, endpoints, bastion
+│   │   └── rds/            # RDS Postgres with logical replication
 │   ├── main.tf
 │   ├── variables.tf
 │   ├── outputs.tf
 │   └── versions.tf
-├── scripts/               # Operational scripts
-│   ├── doctor.sh          # Pre-flight checks
-│   ├── seed.sh            # Schema and seed data
-│   ├── smoke.sh           # End-to-end test
-│   ├── load_generator.py  # Load generator
-│   └── verify-clean.sh    # Post-destroy verification
-├── docs/                  # Documentation
-│   ├── architecture.py    # Architecture diagram generator
-│   ├── architecture.png   # Generated diagram
-│   └── runbooks/          # Operational runbooks
-├── tests/                 # Unit tests
-├── Makefile               # Build automation
-├── README.md              # This file
-├── CHANGELOG.md           # Version history
-└── LICENSE                # MIT license
+├── scripts/                # Operational scripts
+│   ├── doctor.sh           # Pre-flight checks
+│   ├── seed.sh             # Schema, publication, control topic creation
+│   ├── smoke.sh            # End-to-end test
+│   ├── load_generator.py   # Load generator
+│   └── verify-clean.sh     # Post-destroy verification
+├── docs/                   # Documentation
+│   ├── architecture.py     # Architecture diagram generator
+│   ├── architecture.png    # Generated diagram
+│   └── runbooks/           # Operational runbooks
+├── tests/                  # Unit tests
+├── Makefile                # Build automation
+├── README.md               # This file
+├── CHANGELOG.md            # Version history
+├── LICENSE                 # MIT license
+└── requirements.txt        # Python dependencies
 ```
 
 ## Contributing
@@ -463,13 +489,14 @@ See [CHANGELOG.md](CHANGELOG.md).
 ## References
 
 - [Debezium Postgres Connector](https://debezium.io/documentation/reference/stable/connectors/postgresql.html)
+- [Tabular Iceberg Kafka Connect (deprecated)](https://github.com/tabular-io/iceberg-kafka-connect)
 - [Apache Iceberg Kafka Connect](https://iceberg.apache.org/docs/latest/kafka-connect/)
 - [AWS MSK Connect](https://docs.aws.amazon.com/msk/latest/developerguide/msk-connect.html)
-- [AWS MSK](https://docs.aws.amazon.com/msk/latest/developerguide/what-is-msk.html)
+- [AWS MSK Serverless](https://docs.aws.amazon.com/msk/latest/developerguide/serverless.html)
 - [Terraform AWS Provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
 
 ---
 
 **Version**: 0.1.0  
-**Author**: Platform/MLOps Engineer Portfolio Piece  
-**Last Updated**: December 2024
+**Last Updated**: 2026-09-28  
+**Status**: CI-checked; live test pending
