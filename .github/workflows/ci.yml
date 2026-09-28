@@ -111,19 +111,19 @@ jobs:
           # Test that grep patterns handle empty results correctly
           echo "Testing grep -c patterns..."
 
-          # Test pattern: should return 0, not "0\n0"
-          RESULT=$(echo "" | grep -c "test" 2>/dev/null || echo "0")
-          # Trim whitespace
-          RESULT=$(echo "$RESULT" | tr -d '\n')
+          # Test pattern: grep -c returns count, || echo "0" provides fallback
+          # grep -c on empty input returns 0, but combined with || echo "0" causes issues
+          # The correct pattern is: grep -c X || true (returns 0 exit code, grep -c already returns 0 as count)
+          RESULT=$(echo "" | grep -c "test" || true)
           if [ "$RESULT" != "0" ]; then
             echo "Error: grep pattern returned '$RESULT' instead of '0'"
             exit 1
           fi
 
           # Test quota helper logic pattern
-          QUOTA=$(echo "0" | cut -d. -f1)
-          if [ "$QUOTA" != "0" ]; then
-            echo "Error: quota parsing failed"
+          QUOTA=$(echo "5.0" | cut -d. -f1)
+          if [ "$QUOTA" != "5" ]; then
+            echo "Error: quota parsing failed (got '$QUOTA', expected '5')"
             exit 1
           fi
 
