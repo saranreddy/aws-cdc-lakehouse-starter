@@ -1,6 +1,6 @@
 # AWS CDC Lakehouse Starter
 
-A reference implementation for Change Data Capture (CDC) into an Apache Iceberg data lakehouse on AWS. Captures changes from RDS Postgres and makes them queryable via Athena with measured 1-2 minute latency.
+A reference implementation for Change Data Capture (CDC) into an Apache Iceberg data lakehouse on AWS. Expected latency ~1-2 minutes based on the 60-second commit interval (not yet measured in live deployment).
 
 **Architecture**: RDS Postgres (logical replication) → Debezium 2.7.3 on MSK Connect → Amazon MSK Serverless → Iceberg Sink 0.6.19 on MSK Connect → S3 (Iceberg tables) → Glue Data Catalog → Athena
 
@@ -14,7 +14,7 @@ This is a **downloadable starter** for platform and data engineers who want to u
 - MSK Connect with scoped IAM and CloudWatch logging
 - Terraform infrastructure that can be deployed, tested, and cleanly destroyed
 - Private VPC with bastion + SSM access (no NAT gateway, uses interface endpoints)
-- Smoke tests that prove insert/update/delete propagation with measured latency
+- Smoke tests that validate insert/update/delete propagation
 
 ## Who This Is For
 
@@ -265,7 +265,7 @@ Based on **AWS us-east-1 pricing as of 2026-09-28** ([pricing pages cited below]
 **Estimated cost for 1-hour test**: ~$1.20
 
 **Breakdown details**:
-- MSK Serverless: $0.75/cluster-hr + (15 partitions × $0.0015/partition-hr) = $0.773/hr
+- MSK Serverless: ~$0.75-0.80/hr (cluster + estimated ~10 partitions)
 - MSK Connect: 2 connectors × 1 MCU each × $0.11/MCU-hr = $0.22/hr
 - VPC Endpoints: 8 endpoints × 2 AZs × $0.01/endpoint-AZ-hr = $0.16/hr
 

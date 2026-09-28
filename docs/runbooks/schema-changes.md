@@ -154,7 +154,11 @@ Not recommended without testing. Examples:
 Check Iceberg sink logs for schema evolution errors:
 
 ```bash
-aws logs tail /aws/msk-connect/cdc-lakehouse-iceberg- --follow --region us-east-1 | grep -i schema
+aws logs filter-log-events \
+  --log-group-name /aws/msk-connect/cdc-lakehouse-iceberg- \
+  --filter-pattern "schema" \
+  --start-time $(($(date +%s) - 3600))000 \
+  --region us-east-1 | grep -i schema
 ```
 
 Look for:
