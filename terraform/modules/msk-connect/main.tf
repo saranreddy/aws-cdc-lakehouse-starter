@@ -184,6 +184,24 @@ resource "aws_mskconnect_custom_plugin" "iceberg" {
   depends_on = [null_resource.fetch_iceberg_plugin]
 }
 
+# Track connector config hashes to force replacement on config changes (provider #47004)
+resource "terraform_data" "debezium_config_hash" {
+  input = sha256(jsonencode({
+    connector_class     = "io.debezium.connector.postgresql.PostgresConnector"
+    database_hostname   = var.rds_address
+    database_port       = var.rds_port
+    database_user       = var.rds_master_username
+    database_password   = var.rds_secret_arn
+    database_dbname     = var.rds_database_name
+    topic_prefix        = var.name_prefix
+    plugin_name         = "pgoutput"
+    slot_name           = "cdc_lakehouse_slot"
+    publication_name    = "cdc_publication"
+    time_precision_mode = "connect"
+    table_include_list  = "public.customers,public.orders,public.order_items"
+  }))
+}
+
 # Debezium source connector
 resource "aws_mskconnect_connector" "debezium_postgres" {
   name = "${var.name_prefix}-debezium-postgres-${var.random_suffix}"
@@ -293,6 +311,7 @@ resource "aws_mskconnect_connector" "debezium_postgres" {
 
   lifecycle {
     replace_triggered_by = [
+      terraform_data.debezium_config_hash,
       aws_mskconnect_custom_plugin.debezium.id,
       aws_mskconnect_worker_configuration.debezium.id
     ]
@@ -410,7 +429,9 @@ resource "aws_mskconnect_connector" "iceberg_sink" {
 
   lifecycle {
     replace_triggered_by = [
-      aws_mskconnect_custom_plugin.iceberg.id
+      terraform_data.iceberg_config_hash,
+      aws_mskconnect_custom_plugin.iceberg.id,
+      aws_mskconnect_worker_configuration.iceberg.id
     ]
   }
 }
