@@ -185,7 +185,7 @@ kafka-consumer-groups.sh \
   --command-config client.properties \
   --group iceberg-sink-group \
   --reset-offsets \
-  --to-datetime "2024-12-20T10:00:00.000" \
+  --to-datetime "2026-09-28T10:00:00.000" \
   --all-topics \
   --execute
 ```
