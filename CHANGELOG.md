@@ -60,7 +60,7 @@ Initial release of AWS CDC Lakehouse Starter. This is a **learning reference** d
 - **Helper scripts**:
   - `seed.sh`: Database seeding (idempotent) + control topic creation via SSM send-command
   - `doctor.sh`: Pre-flight checks (tools, quotas, costs)
-  - `smoke.sh`: End-to-end testing (insert/update/delete with measured latency)
+  - `smoke.sh`: End-to-end testing (insert/update/delete with end-to-end testing)
   - `load_generator.py`: Load generator (configurable rate)
   - `verify-clean.sh`: Post-destroy verification (checks for remaining billable resources)
 
@@ -90,17 +90,17 @@ Initial release of AWS CDC Lakehouse Starter. This is a **learning reference** d
 
 **Debezium 2.7.3.Final**:
 - MSK Connect 3.7.x runtime uses Java 17
-- Debezium 2.7.3 (Java 11+) runs successfully on Java 17 runtime
+- Debezium 2.7.3 (Java 11+) compatible with Java 17 (not yet live-tested)
 - Debezium 3.x (Java 17+) would be version-aligned but not tested in this starter
-- Conservative choice: 2.7.3 is widely deployed and field-proven
+- Conservative choice: 2.7.3 is widely deployed and widely deployed (not yet field-tested here)
 
 **Tabular Iceberg 0.6.19**:
-- Last proven stable release from Tabular
+- Last stable stable release from Tabular
 - Repository deprecated in favor of Apache Iceberg's official connector
-- Field-tested with Debezium integration
+- Tested in other deployments with Debezium integration
 
 **VPC Interface Endpoints over NAT Gateway**:
-- 6 endpoints × 2 AZs × $0.01/hr = $0.12/hr
+- 8 endpoints × 2 AZs × $0.01/hr = $0.12/hr
 - vs NAT Gateway $0.045/hr + data transfer
 - Simpler architecture for short tests; for long-running production evaluate NAT Gateway + fewer endpoints
 
@@ -128,13 +128,13 @@ Initial release of AWS CDC Lakehouse Starter. This is a **learning reference** d
 - RDS db.t4g.micro: $0.016/hr
 - RDS storage (20 GB gp3): $0.003/hr
 - EC2 t3.micro bastion: $0.010/hr
-- VPC Interface endpoints (6 × 2 AZs): $0.12/hr
+- VPC Interface endpoints (8 × 2 AZs): $0.12/hr
 - Public IPv4: $0.005/hr
 - **Total: ~$1.17-1.20/hr estimated**
 
 ### References
 
-All AWS service compatibility claims verified against current AWS documentation as of 2026-09-28:
+All AWS service compatibility claims referenced from current AWS documentation as of 2026-09-28:
 - MSK Serverless: https://docs.aws.amazon.com/msk/latest/developerguide/serverless.html
 - MSK Connect: https://docs.aws.amazon.com/msk/latest/developerguide/msk-connect.html
 - MSK Connect runtimes: https://docs.aws.amazon.com/msk/latest/developerguide/msk-connect-workers.html

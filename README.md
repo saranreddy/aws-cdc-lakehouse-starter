@@ -121,7 +121,7 @@ Iceberg v2 supports **row-level deletes and updates** via delete files, which th
 - **Session Manager plugin** for AWS CLI ([installation guide](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html))
 - **zip, curl, shasum**: Standard Unix tools (macOS and Linux compatible)
 
-**macOS bash 3.2 compatibility**: Tested in CI on macOS with bash 3.2. No bashisms or GNU-specific flags.
+**macOS bash 3.2 compatibility**: Scripts are syntax-checked with bash -n under bash 3.2 in CI. No bashisms or GNU-specific flags.
 
 ## Quickstart
 
@@ -150,7 +150,7 @@ make up
 3. `make apply-connectors` — Enable and deploy Debezium source and Iceberg sink connectors
 
 Provisions:
-- VPC, subnets, security groups, VPC endpoints (S3 Gateway + 6 Interface)
+- VPC, subnets, security groups, VPC endpoints (S3 Gateway + 8 Interface)
 - RDS Postgres 16 with logical replication enabled
 - MSK Serverless cluster with IAM auth
 - MSK Connect custom plugins (Debezium, Iceberg) uploaded to S3
@@ -173,7 +173,7 @@ End-to-end verification:
 3. Updates the row and verifies the update in Athena
 4. Deletes the row and verifies the deletion in Athena
 
-Reports expected latency based on the Kafka Connect flush interval.
+Measures elapsed time from INSERT until the row appears in Athena. Expected: ~1-2 min based on 60s commit interval.
 
 **Expected duration**: 5-10 minutes (depends on Kafka Connect flush intervals and Athena query time)
 
@@ -286,10 +286,10 @@ See `docs/runbooks/` for operational procedures:
 
 ### Connector Versions
 
-- **Debezium 2.7.3.Final**: Java 11+ compatible, tested with Java 17 runtime in CI (not yet live-tested)
+- **Debezium 2.7.3.Final**: Java 11+ compatible, compatible with Java 17 (not yet live-tested)
 - **Tabular Iceberg Kafka Connect 0.6.19**: Last stable release before Tabular deprecated the repository in favor of Apache Iceberg's official connector
 
-**Note**: MSK Connect 3.7.x runtime uses Java 17. Debezium 2.7.3 (Java 11+) runs successfully. Debezium 3.x (Java 17+) would be version-aligned but is not tested in this starter.
+**Note**: MSK Connect 3.7.x runtime uses Java 17. Debezium 2.7.3 (Java 11+) is compatible. Debezium 3.x (Java 17+) would be version-aligned but is not tested in this starter.
 
 ### AWS Secrets Manager Config Provider
 

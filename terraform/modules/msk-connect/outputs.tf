@@ -27,3 +27,4 @@ output "iceberg_plugin_arn" {
   description = "ARN of the Iceberg custom plugin"
   value       = aws_mskconnect_custom_plugin.iceberg.arn
 }
+

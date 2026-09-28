@@ -82,7 +82,7 @@ The Iceberg sink connector uses:
 - Consumer group: `cg-control-<connector-name>-<suffix>` for the control topic
 - Internal Connect groups: `connect-<connector-name>-<suffix>`
 
-**Important**: The bastion IAM role includes `DescribeGroup` and `AlterGroup` permissions for consumer offset management.
+**Important**: The bastion IAM role now includes (as of this fix) `DescribeGroup` and `AlterGroup` permissions for consumer offset management.
 
 Find your actual group names:
 ```bash
@@ -92,7 +92,14 @@ REGION=$(terraform output -raw region)
 cd ..
 
 # List consumer groups
-aws kafka list-consumer-groups \
+# Connect to bastion via SSM to list groups
+aws ssm start-session --target "$BASTION_ID" --region "$REGION"
+
+# On bastion:
+/opt/kafka/bin/kafka-consumer-groups.sh \
+  --bootstrap-server "$MSK_BOOTSTRAP" \
+  --command-config /tmp/client.properties \
+  --list \
   --cluster-arn "$MSK_CLUSTER_ARN" \
   --region "$REGION" \
   --output json | jq '.consumerGroupSummaries[] | select(.consumerGroupName | contains("iceberg"))'
@@ -150,7 +157,7 @@ Re-run the connector Terraform:
 
 ```bash
 cd terraform
-terraform apply -target=module.msk_connect.aws_mskconnect_connector.iceberg_sink
+make apply-connectors  # Or: cd terraform && terraform apply -var enable_connectors=true=module.msk_connect.aws_mskconnect_connector.iceberg_sink
 cd ..
 ```
 
@@ -240,8 +247,12 @@ The bastion IAM role has `kafka-cluster:DescribeGroup` and `kafka-cluster:AlterG
 
 If the connector gets stuck during recreation, check CloudWatch logs:
 ```bash
-aws logs tail /aws/msk-connect/cdc-lakehouse-iceberg-<suffix> \
-  --follow \
+Check connector logs:
+```bash
+# CLI v1 compatible
+aws logs filter-log-events \
+  --log-group-name /aws/msk-connect/cdc-lakehouse-iceberg-<suffix> \
+  --start-time $(($(date +%s) - 3600))000 \
   --region us-east-1
 ```
 

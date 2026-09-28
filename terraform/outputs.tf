@@ -77,3 +77,7 @@ output "region" {
   description = "AWS region"
   value       = var.region
 }
+output "iceberg_connector_arn" {
+  description = "Iceberg connector ARN"
+  value       = try(module.msk_connect.iceberg_connector_arn, null)
+}
