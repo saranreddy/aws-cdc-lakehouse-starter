@@ -1,23 +1,29 @@
 output "debezium_connector_name" {
-  value = aws_mskconnect_connector.debezium.name
+  description = "Name of the Debezium source connector"
+  value       = aws_mskconnect_connector.debezium_postgres.name
 }
 
 output "debezium_connector_arn" {
-  value = aws_mskconnect_connector.debezium.arn
+  description = "ARN of the Debezium source connector"
+  value       = aws_mskconnect_connector.debezium_postgres.arn
 }
 
 output "iceberg_connector_name" {
-  value = aws_mskconnect_connector.iceberg.name
+  description = "Name of the Iceberg sink connector"
+  value       = aws_mskconnect_connector.iceberg_sink.name
 }
 
 output "iceberg_connector_arn" {
-  value = aws_mskconnect_connector.iceberg.arn
+  description = "ARN of the Iceberg sink connector"
+  value       = aws_mskconnect_connector.iceberg_sink.arn
 }
 
 output "debezium_plugin_arn" {
-  value = aws_mskconnect_custom_plugin.debezium.arn
+  description = "ARN of the Debezium custom plugin"
+  value       = aws_mskconnect_custom_plugin.debezium.arn
 }
 
 output "iceberg_plugin_arn" {
-  value = aws_mskconnect_custom_plugin.iceberg.arn
+  description = "ARN of the Iceberg custom plugin"
+  value       = aws_mskconnect_custom_plugin.iceberg.arn
 }
