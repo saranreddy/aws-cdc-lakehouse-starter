@@ -60,10 +60,10 @@ module "iam" {
 module "glue" {
   source = "./modules/glue"
 
-  name_prefix    = var.name_prefix
-  region         = var.region
-  s3_bucket_arn  = module.msk.s3_bucket_arn
-  random_suffix  = random_id.suffix.hex
+  name_prefix   = var.name_prefix
+  region        = var.region
+  s3_bucket_arn = module.msk.s3_bucket_arn
+  random_suffix = random_id.suffix.hex
 }
 
 # MSK Connect: Debezium source and Iceberg sink connectors
