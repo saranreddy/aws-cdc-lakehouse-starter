@@ -12,6 +12,8 @@ cleanup() {
         echo "Cleaning up SSM tunnel..."
         kill "$SSM_PID" 2>/dev/null || true
         wait "$SSM_PID" 2>/dev/null || true
+        # Also kill any orphaned session-manager-plugin processes
+        pkill -f "session-manager-plugin.*$BASTION_INSTANCE_ID" 2>/dev/null || true
     fi
     exit $exit_code
 }
@@ -56,21 +58,20 @@ export PGPASSWORD="$PGPASSWORD_VALUE"
 # Start SSM tunnel
 echo "Starting SSM port forward..."
 LOCAL_PORT=5433
-if ! aws ssm start-session \
+aws ssm start-session \
     --target "$BASTION_INSTANCE_ID" \
     --document-name AWS-StartPortForwardingSessionToRemoteHost \
     --parameters "{\"host\":[\"$RDS_ENDPOINT\"],\"portNumber\":[\"$RDS_PORT\"],\"localPortNumber\":[\"$LOCAL_PORT\"]}" \
-    >/dev/null 2>&1 & then
-    echo "Error: Failed to start SSM session"
-    exit 1
-fi
+    --region "$REGION" >/dev/null 2>&1 &
 SSM_PID=$!
 
+echo "Waiting for tunnel to be ready..."
 # Wait for tunnel
 RETRIES=0
 MAX_RETRIES=30
 while [ $RETRIES -lt $MAX_RETRIES ]; do
     if nc -z localhost $LOCAL_PORT 2>/dev/null; then
+        echo "Tunnel is ready"
         break
     fi
     RETRIES=$((RETRIES + 1))
@@ -108,7 +109,7 @@ while [ $(($(date +%s) - POLL_START)) -lt $MAX_WAIT ]; do
         --work-group "$ATHENA_WORKGROUP" \
         --region "$REGION" \
         --query 'QueryExecutionId' \
-        --output text 2>/dev/null)
+        --output text 2>/dev/null || true)
     
     if [ -n "$QUERY_ID" ]; then
         # Wait for query to complete
@@ -120,7 +121,7 @@ while [ $(($(date +%s) - POLL_START)) -lt $MAX_WAIT ]; do
                 --query-execution-id "$QUERY_ID" \
                 --region "$REGION" \
                 --query 'QueryExecution.Status.State' \
-                --output text 2>/dev/null)
+                --output text 2>/dev/null || true)
             
             if [ "$STATUS" = "SUCCEEDED" ]; then
                 break
@@ -197,7 +198,7 @@ while [ $(($(date +%s) - UPDATE_START)) -lt $MAX_WAIT ]; do
                 --query-execution-id "$QUERY_ID" \
                 --region "$REGION" \
                 --query 'QueryExecution.Status.State' \
-                --output text 2>/dev/null)
+                --output text 2>/dev/null || true)
             
             if [ "$STATUS" = "SUCCEEDED" ]; then
                 break
@@ -268,7 +269,7 @@ while [ $(($(date +%s) - DELETE_START)) -lt $MAX_WAIT ]; do
                 --query-execution-id "$QUERY_ID" \
                 --region "$REGION" \
                 --query 'QueryExecution.Status.State' \
-                --output text 2>/dev/null)
+                --output text 2>/dev/null || true)
             
             if [ "$STATUS" = "SUCCEEDED" ]; then
                 break

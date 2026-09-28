@@ -29,6 +29,8 @@ cleanup() {
         echo "Cleaning up SSM tunnel..."
         kill "$SSM_PID" 2>/dev/null || true
         wait "$SSM_PID" 2>/dev/null || true
+        # Also kill any orphaned session-manager-plugin processes
+        pkill -f "session-manager-plugin.*$BASTION_INSTANCE_ID" 2>/dev/null || true
     fi
     exit $exit_code
 }
@@ -90,7 +92,20 @@ fi
 # Execute SQL (idempotent - recreate publication without dropping tables)
 echo ""
 echo "Creating schema and seeding data (idempotent)..."
-psql -h localhost -p $LOCAL_PORT -U "$RDS_USERNAME" -d "$RDS_DATABASE" <<'EOF'
+
+# Check wal_level is set to logical
+echo "Verifying wal_level is set to 'logical'..."
+WAL_LEVEL=$(PGPASSWORD="$PGPASSWORD_VALUE" psql -h localhost -p $LOCAL_PORT -U "$RDS_USERNAME" -d "$RDS_DATABASE" -tAc "show wal_level")
+if [ "$WAL_LEVEL" != "logical" ]; then
+    echo "Error: wal_level is '$WAL_LEVEL', expected 'logical'"
+    echo "Logical replication requires wal_level=logical in the RDS parameter group"
+    exit 1
+fi
+echo "wal_level check passed: $WAL_LEVEL"
+
+# Run SQL with ON_ERROR_STOP to fail on any error
+PGPASSWORD="$PGPASSWORD_VALUE" \
+psql -h localhost -p $LOCAL_PORT -U "$RDS_USERNAME" -d "$RDS_DATABASE" -v ON_ERROR_STOP=1 <<'EOF'
 -- Create tables (IF NOT EXISTS for idempotency)
 CREATE TABLE IF NOT EXISTS public.customers (
     id SERIAL PRIMARY KEY,
@@ -186,17 +201,44 @@ echo ""
 # Create a script on the bastion to create the Kafka topic
 KAFKA_SCRIPT=$(cat <<'KAFKA_EOF'
 #!/bin/bash
-set -e
+set -euo pipefail
 
-# Install Kafka CLI and aws-msk-iam-auth if not already present
-if [ ! -d /opt/kafka ]; then
-    echo "Installing Kafka CLI tools..."
-    cd /tmp
+# Wait for cloud-init to complete
+cloud-init status --wait >/dev/null 2>&1 || true
+
+# Ensure Java is installed
+command -v java >/dev/null || dnf install -y java-17-amazon-corretto-headless
+
+# Download and verify Kafka CLI if not already fully installed
+if [ ! -x /opt/kafka/bin/kafka-topics.sh ] || [ ! -f /opt/kafka/libs/aws-msk-iam-auth.jar ]; then
+    echo "Installing Kafka CLI and aws-msk-iam-auth..."
+    
+    # Create temp directory for downloads
+    TEMP_DIR=$(mktemp -d)
+    cd "$TEMP_DIR"
+    
+    # Download Kafka with retry
     KAFKA_VERSION="3.7.1"
     KAFKA_URL="https://archive.apache.org/dist/kafka/${KAFKA_VERSION}/kafka_2.13-${KAFKA_VERSION}.tgz"
     KAFKA_SHA512="78e985235d245ba9e2951a82e723a62b8aba8b74a2c8376f7271906af715a36de9142c446096f13fd4bff3a4c10f1d080eb924e91e2256ec2db779906fd6737d"
     
-    curl -fsSL "$KAFKA_URL" -o kafka.tgz
+    echo "Downloading Kafka ${KAFKA_VERSION} (may take up to 30 minutes on slow connections)..."
+    MAX_RETRIES=3
+    RETRY_COUNT=0
+    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+        if curl -fsSL "$KAFKA_URL" -o kafka.tgz; then
+            echo "Download complete, verifying..."
+            break
+        fi
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+            echo "Download failed, retrying ($RETRY_COUNT/$MAX_RETRIES)..."
+            sleep 5
+        else
+            echo "Error: Failed to download Kafka after $MAX_RETRIES attempts"
+            exit 1
+        fi
+    done
     
     # Verify SHA512 (AL2023 has sha512sum)
     ACTUAL_SHA512=$(sha512sum kafka.tgz | cut -d' ' -f1)
@@ -209,20 +251,20 @@ if [ ! -d /opt/kafka ]; then
     fi
     
     echo "Kafka SHA512 verified successfully"
-    sudo mkdir -p /opt
-    sudo tar -xzf kafka.tgz -C /opt/
-    sudo mv /opt/kafka_2.13-${KAFKA_VERSION} /opt/kafka
-    rm kafka.tgz
+    
+    # Extract to temp location
+    tar -xzf kafka.tgz
     
     # Install aws-msk-iam-auth
     IAM_AUTH_VERSION="1.1.9"
     IAM_AUTH_URL="https://github.com/aws/aws-msk-iam-auth/releases/download/v${IAM_AUTH_VERSION}/aws-msk-iam-auth-${IAM_AUTH_VERSION}-all.jar"
     IAM_AUTH_SHA256="16b3fbb2fbc7f0a5e60f2b8152b85c4892ed2459595a6400bc29126d98dcdf78"
     
-    curl -fsSL "$IAM_AUTH_URL" -o /tmp/aws-msk-iam-auth.jar
+    echo "Downloading aws-msk-iam-auth ${IAM_AUTH_VERSION}..."
+    curl -fsSL "$IAM_AUTH_URL" -o aws-msk-iam-auth.jar
     
     # Verify SHA256
-    ACTUAL_SHA256=$(sha256sum /tmp/aws-msk-iam-auth.jar | cut -d' ' -f1)
+    ACTUAL_SHA256=$(sha256sum aws-msk-iam-auth.jar | cut -d' ' -f1)
     echo "Expected SHA256: $IAM_AUTH_SHA256"
     echo "Actual SHA256:   $ACTUAL_SHA256"
     
@@ -232,8 +274,19 @@ if [ ! -d /opt/kafka ]; then
     fi
     
     echo "aws-msk-iam-auth SHA256 verified successfully"
-    sudo mkdir -p /opt/kafka/libs
-    sudo mv /tmp/aws-msk-iam-auth.jar /opt/kafka/libs/
+    
+    # Move into place atomically
+    sudo mkdir -p "kafka_2.13-${KAFKA_VERSION}/libs"
+    sudo mv aws-msk-iam-auth.jar "kafka_2.13-${KAFKA_VERSION}/libs/"
+    sudo rm -rf /opt/kafka
+    sudo mkdir -p /opt
+    sudo mv "kafka_2.13-${KAFKA_VERSION}" /opt/kafka
+    
+    # Cleanup
+    cd /
+    rm -rf "$TEMP_DIR"
+    
+    echo "Kafka and aws-msk-iam-auth installed successfully"
 fi
 
 # Create client.properties for IAM auth
@@ -271,10 +324,9 @@ KAFKA_EOF
 # Replace the bootstrap servers placeholder with actual value
 KAFKA_SCRIPT="${KAFKA_SCRIPT//MSK_BOOTSTRAP_PLACEHOLDER/$MSK_BOOTSTRAP}"
 
-# Build SSM parameters JSON with python3
-SSM_PARAMS=$(python3 -c "import json; print(json.dumps({'commands': ['''$KAFKA_SCRIPT''']}))")
+# Build SSM parameters JSON with python3 (safe from backslash-newline joining)
 SSM_PARAMS_FILE=$(mktemp)
-echo "$SSM_PARAMS" > "$SSM_PARAMS_FILE"
+printf '%s' "$KAFKA_SCRIPT" | python3 -c 'import json,sys; print(json.dumps({"commands":[sys.stdin.read()],"executionTimeout":["1800"]}))' > "$SSM_PARAMS_FILE"
 
 # Send command to bastion to create topic
 echo "Sending command to bastion..."
@@ -294,10 +346,10 @@ if [ -z "$COMMAND_ID" ]; then
 fi
 
 echo "Command ID: $COMMAND_ID"
-echo "Waiting for command to complete..."
+echo "Waiting for command to complete (up to 20 minutes for Kafka download)..."
 
 # Poll for command status
-MAX_WAIT=300
+MAX_WAIT=1200
 ELAPSED=0
 while [ $ELAPSED -lt $MAX_WAIT ]; do
     STATUS=$(aws ssm get-command-invocation \

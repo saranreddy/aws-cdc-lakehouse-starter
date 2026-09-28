@@ -399,7 +399,15 @@ resource "aws_iam_role_policy" "bastion_kafka" {
           "kafka-cluster:ReadData",
           "kafka-cluster:WriteData"
         ]
-        Resource = "arn:aws:kafka:${var.region}:*:topic/${var.name_prefix}-*/*/*/control-iceberg"
+        Resource = "arn:aws:kafka:${var.region}:*:topic/${var.name_prefix}-*/*/control-iceberg"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "kafka-cluster:DescribeGroup",
+          "kafka-cluster:AlterGroup"
+        ]
+        Resource = "arn:aws:kafka:${var.region}:*:group/${var.name_prefix}-*/*/*"
       }
     ]
   })
