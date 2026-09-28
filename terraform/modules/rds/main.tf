@@ -54,12 +54,12 @@ resource "aws_db_instance" "postgres" {
   engine_version = "16.3"
   instance_class = var.instance_class
 
-  allocated_storage     = var.allocated_storage
-  storage_type          = "gp3"
-  storage_encrypted     = true
+  allocated_storage = var.allocated_storage
+  storage_type      = "gp3"
+  storage_encrypted = true
 
-  db_name  = "cdc_demo"
-  username = "postgres"
+  db_name                     = "cdc_demo"
+  username                    = "postgres"
   manage_master_user_password = true
 
   db_subnet_group_name   = aws_db_subnet_group.main.name
@@ -67,12 +67,12 @@ resource "aws_db_instance" "postgres" {
   parameter_group_name   = aws_db_parameter_group.postgres.name
 
   backup_retention_period = 1
-  backup_window          = "03:00-04:00"
-  maintenance_window     = "mon:04:00-mon:05:00"
+  backup_window           = "03:00-04:00"
+  maintenance_window      = "mon:04:00-mon:05:00"
 
-  skip_final_snapshot       = true
-  deletion_protection       = false
-  delete_automated_backups  = true
+  skip_final_snapshot      = true
+  deletion_protection      = false
+  delete_automated_backups = true
 
   enabled_cloudwatch_logs_exports = ["postgresql"]
 

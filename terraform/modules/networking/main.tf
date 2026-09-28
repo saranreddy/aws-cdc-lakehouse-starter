@@ -264,7 +264,7 @@ resource "aws_security_group" "rds" {
 
 resource "aws_security_group" "msk" {
   name_prefix = "${var.name_prefix}-msk-"
-  description = "Security group for MSK cluster"
+  description = "Security group for MSK Serverless cluster"
   vpc_id      = aws_vpc.main.id
 
   ingress {
@@ -273,14 +273,6 @@ resource "aws_security_group" "msk" {
     protocol        = "tcp"
     security_groups = [aws_security_group.msk_connect.id]
     description     = "Kafka IAM auth from MSK Connect"
-  }
-
-  ingress {
-    from_port = 9098
-    to_port   = 9098
-    protocol  = "tcp"
-    self      = true
-    description = "Kafka IAM auth between brokers"
   }
 
   egress {

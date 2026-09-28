@@ -68,10 +68,10 @@ with Diagram(
                     "v1.4.3"
                 )
             
-            endpoints = VPCEndpoint("VPC Endpoints\n" +
-                                   "S3 Gateway\n" +
-                                   "Glue, STS, Secrets,\n" +
-                                   "Logs, SSM")
+            endpoints = Endpoint("VPC Endpoints\n" +
+                                "S3 Gateway\n" +
+                                "Glue, STS, Secrets,\n" +
+                                "Logs, SSM")
     
     with Cluster("Data Lake"):
         s3 = S3("S3 Bucket\n" +

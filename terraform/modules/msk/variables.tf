@@ -18,16 +18,6 @@ variable "security_group_ids" {
   type        = list(string)
 }
 
-variable "instance_type" {
-  description = "MSK broker instance type"
-  type        = string
-}
-
-variable "broker_count" {
-  description = "Number of brokers"
-  type        = number
-}
-
 variable "random_suffix" {
   description = "Random suffix for unique names"
   type        = string

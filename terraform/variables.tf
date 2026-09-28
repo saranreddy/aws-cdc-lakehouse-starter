@@ -27,18 +27,6 @@ variable "rds_allocated_storage" {
   default     = 20
 }
 
-variable "msk_instance_type" {
-  description = "MSK broker instance type"
-  type        = string
-  default     = "kafka.t3.small"
-}
-
-variable "msk_broker_count" {
-  description = "Number of MSK brokers (must match number of AZs)"
-  type        = number
-  default     = 2
-}
-
 variable "allowed_cidr_blocks" {
   description = "CIDR blocks allowed to access the temporary bastion (use your IP/32)"
   type        = list(string)
