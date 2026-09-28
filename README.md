@@ -62,11 +62,11 @@ This is v0.1.0—a solid foundation, not a complete production system.
 ### Connectivity
 
 - **Private VPC** with no NAT gateway (cost optimization)
-- **VPC Endpoints**: S3 Gateway, plus 6 Interface endpoints for Glue, STS, Secrets Manager, CloudWatch Logs, SSM (3 endpoints for Session Manager)
+- **VPC Endpoints**: S3 Gateway (free), plus 8 Interface endpoints (Glue, STS, Secrets Manager, CloudWatch Logs, CloudWatch Monitoring, SSM, SSM Messages, EC2 Messages)
 - **Bastion**: t3.micro EC2 instance in a public subnet with public IP for SSM Session Manager port forwarding to RDS
 - **MSK Connect** runs in private subnets with IAM-based Kafka authentication
 
-**Design choice**: 6 interface endpoints × 2 AZs × $0.01/hr = $0.12/hr vs NAT Gateway at $0.045/hr + data transfer. Endpoints are more expensive for always-on production use but simpler for short tests and this demo architecture avoids NAT Gateway complexity. For long-running production, evaluate NAT Gateway + fewer endpoints.
+**Design choice**: 8 interface endpoints × 2 AZs × $0.01/hr = $0.16/hr vs NAT Gateway at $0.045/hr + data transfer. Endpoints are more expensive for always-on production use but simpler for short tests and this demo architecture avoids NAT Gateway complexity. For long-running production, evaluate NAT Gateway + fewer endpoints.
 
 ## Architecture Decisions
 
@@ -254,20 +254,20 @@ Based on **AWS us-east-1 pricing as of 2026-09-28** ([pricing pages cited below]
 | MSK Serverless partition-hours (~15) | $0.023/hour | [MSK Pricing](https://aws.amazon.com/msk/pricing/) |
 | MSK Connect (2 MCU-hours) | $0.220/hour | [MSK Pricing](https://aws.amazon.com/msk/pricing/) |
 | **Networking** | | |
-| VPC Interface Endpoints (6 × 2 AZs) | $0.120/hour | [VPC Pricing](https://aws.amazon.com/vpc/pricing/) |
+| VPC Interface Endpoints (8 × 2 AZs) | $0.160/hour | [VPC Pricing](https://aws.amazon.com/vpc/pricing/) |
 | Public IPv4 address | $0.005/hour | [VPC Pricing](https://aws.amazon.com/vpc/pricing/) |
 | **Storage & Queries** | | |
 | S3 Standard storage | $0.023/GB/month | [S3 Pricing](https://aws.amazon.com/s3/pricing/) |
 | Athena queries | $5.00/TB scanned | [Athena Pricing](https://aws.amazon.com/athena/pricing/) |
 | CloudWatch Logs | $0.50/GB ingested | [CloudWatch Pricing](https://aws.amazon.com/cloudwatch/pricing/) |
 
-**Total estimated hourly cost**: ~$1.15/hour  
+**Total estimated hourly cost**: ~$1.17-1.20/hour (estimate; actual cost depends on MSK Serverless partition count and data transfer)  
 **Estimated cost for 1-hour test**: ~$1.20
 
 **Breakdown details**:
 - MSK Serverless: $0.75/cluster-hr + (15 partitions × $0.0015/partition-hr) = $0.773/hr
 - MSK Connect: 2 connectors × 1 MCU each × $0.11/MCU-hr = $0.22/hr
-- VPC Endpoints: 6 endpoints × 2 AZs × $0.01/endpoint-AZ-hr = $0.12/hr
+- VPC Endpoints: 8 endpoints × 2 AZs × $0.01/endpoint-AZ-hr = $0.16/hr
 
 **After `make down`**: Cost drops to ~$0 within minutes. S3 and CloudWatch Logs charges are minimal for test workloads.
 

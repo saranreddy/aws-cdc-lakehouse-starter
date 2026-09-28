@@ -340,7 +340,7 @@ resource "aws_mskconnect_connector" "iceberg_sink" {
     "iceberg.tables.default-id-columns" = "id"
 
     # Routing (_cdc.source is STRING "public.table", not struct)
-    "iceberg.tables.route-field"                                    = "_cdc.source"
+    "iceberg.tables.route-field"                                      = "_cdc.source"
     "iceberg.table.${var.glue_database_name}.customers.route-regex"   = "public\\.customers"
     "iceberg.table.${var.glue_database_name}.orders.route-regex"      = "public\\.orders"
     "iceberg.table.${var.glue_database_name}.order_items.route-regex" = "public\\.order_items"
@@ -352,11 +352,11 @@ resource "aws_mskconnect_connector" "iceberg_sink" {
     "iceberg.catalog.client.region" = var.region
 
     # Table auto-creation with format version 2 for upsert support
-    "iceberg.tables"                             = "${var.glue_database_name}.customers,${var.glue_database_name}.orders,${var.glue_database_name}.order_items"
-    "iceberg.tables.upsert-mode-enabled"         = "true"
-    "iceberg.tables.evolve-schema-enabled"       = "true"
-    "iceberg.tables.auto-create-enabled"         = "true"
-    "iceberg.tables.default-commit-branch"       = "main"
+    "iceberg.tables"                                  = "${var.glue_database_name}.customers,${var.glue_database_name}.orders,${var.glue_database_name}.order_items"
+    "iceberg.tables.upsert-mode-enabled"              = "true"
+    "iceberg.tables.evolve-schema-enabled"            = "true"
+    "iceberg.tables.auto-create-enabled"              = "true"
+    "iceberg.tables.default-commit-branch"            = "main"
     "iceberg.tables.auto-create-props.format-version" = "2"
 
     # Converters (match Debezium output)

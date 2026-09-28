@@ -23,11 +23,12 @@ resource "null_resource" "cleanup_glue_tables" {
     command = <<-EOF
       # Delete all tables in the database before destroying
       aws glue get-tables --database-name "${self.triggers.database_name}" \
+        --region ${var.region} \
         --query 'TableList[].Name' --output text 2>/dev/null | \
       tr '\t' '\n' | while read -r table; do
         if [ -n "$table" ]; then
           echo "Deleting Glue table: $table"
-          aws glue delete-table --database-name "${self.triggers.database_name}" --name "$table" 2>/dev/null || true
+          aws glue delete-table --database-name "${self.triggers.database_name}" --name "$table" --region ${var.region} 2>/dev/null || true
         fi
       done
     EOF

@@ -41,7 +41,7 @@ Initial release of AWS CDC Lakehouse Starter. This is a **learning reference** d
   - RDS parameter: `wal_sender_timeout=0` (no timeout; holds slot indefinitely if connector stops)
   - AWS Glue Data Catalog for Iceberg metadata
   - Amazon Athena workgroup for queries
-  - Private VPC with S3 Gateway endpoint + 6 Interface endpoints (Glue, STS, Secrets Manager, CloudWatch Logs, SSM × 3)
+  - Private VPC with S3 Gateway endpoint + 8 Interface endpoints (Glue, STS, Secrets Manager, CloudWatch Logs, CloudWatch Monitoring, SSM, SSM Messages, EC2 Messages)
   - Bastion t3.micro in public subnet with public IP for SSM Session Manager access
 
 - **Staged deployment flow**:
@@ -54,7 +54,7 @@ Initial release of AWS CDC Lakehouse Starter. This is a **learning reference** d
 - **Documentation**:
   - Architecture diagram (generated PNG via `diagrams` library)
   - Honest README with MSK Serverless rationale, cost analysis, limitations, and "when not to use"
-  - Cost analysis: ~$1.15/hr (verified 2026-09-28 pricing)
+  - Cost analysis: ~$1.17-1.20/hr estimated (verified 2026-09-28 pricing)
   - Connector version compatibility notes
 
 - **Helper scripts**:
@@ -130,7 +130,7 @@ Initial release of AWS CDC Lakehouse Starter. This is a **learning reference** d
 - EC2 t3.micro bastion: $0.010/hr
 - VPC Interface endpoints (6 × 2 AZs): $0.12/hr
 - Public IPv4: $0.005/hr
-- **Total: ~$1.15/hr**
+- **Total: ~$1.17-1.20/hr estimated**
 
 ### References
 

@@ -3,6 +3,11 @@ variable "name_prefix" {
   type        = string
 }
 
+variable "region" {
+  description = "AWS region"
+  type        = string
+}
+
 variable "s3_bucket_arn" {
   description = "S3 bucket ARN for Iceberg tables"
   type        = string

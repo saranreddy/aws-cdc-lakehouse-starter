@@ -58,25 +58,25 @@ with Diagram(
                     "Auto-scaling"
                 )
             
-            with Cluster("MSK Connect (runtime 3.7.x, Java 17)"):
-                debezium = EC2(
-                    "Debezium\nPostgres Source\n" +
+            with Cluster("MSK Connect runtime 3.7.x (Java 17)"):
+                debezium = ManagedStreamingForKafka(
+                    "Debezium\nPostgres Connector\n" +
                     "v2.7.3.Final\n" +
-                    "(1 MCU)"
+                    "(1 MCU, autoscaling)"
                 )
                 
-                iceberg_sink = EC2(
-                    "Tabular Iceberg\nKafka Sink\n" +
+                iceberg_sink = ManagedStreamingForKafka(
+                    "Tabular Iceberg\nKafka Connect Sink\n" +
                     "v0.6.19\n" +
-                    "(1 MCU)"
+                    "(1 MCU, autoscaling)"
                 )
             
             endpoints = Endpoint(
-                "VPC Endpoints (6)\n" +
-                "S3 (Gateway)\n" +
-                "Glue, STS, Secrets\n" +
-                "CloudWatch Logs\n" +
-                "SSM (3 endpoints)"
+                "VPC Endpoints (8)\n" +
+                "S3 (Gateway, free)\n" +
+                "Glue, STS, Secrets Manager\n" +
+                "CloudWatch (Logs, Monitoring)\n" +
+                "SSM, SSM Messages, EC2 Messages"
             )
     
     with Cluster("Data Lake"):
