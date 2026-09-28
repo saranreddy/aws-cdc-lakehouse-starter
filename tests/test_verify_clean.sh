@@ -11,6 +11,9 @@ echo "=== Testing verify-clean.sh ==="
 echo "Test directory: $TEST_DIR"
 echo ""
 
+# Export TEST_DIR so stub can use it
+export TEST_DIR
+
 # Create a minimal terraform.tfvars
 mkdir -p "$TEST_DIR/terraform"
 echo 'region = "us-east-1"' > "$TEST_DIR/terraform/terraform.tfvars"
