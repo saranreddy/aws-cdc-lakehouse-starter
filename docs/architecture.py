@@ -5,13 +5,12 @@ Requires: pip3 install diagrams graphviz
 """
 
 from diagrams import Diagram, Cluster, Edge
-from diagrams.aws.database import RDS, RDSPostgresqlInstance
-from diagrams.aws.analytics import Glue, Athena, ManagedStreamingForApacheKafka
+from diagrams.aws.database import RDSPostgresqlInstance
+from diagrams.aws.analytics import Glue, Athena, KinesisDataStreams
 from diagrams.aws.storage import S3
 from diagrams.aws.compute import EC2
-from diagrams.aws.network import VPC, PrivateSubnet, InternetGateway, VPCEndpoint
+from diagrams.aws.network import InternetGateway, VPCEndpoint
 from diagrams.aws.security import SecretsManager
-from diagrams.custom import Custom
 import os
 
 # Change to docs directory
@@ -51,7 +50,8 @@ with Diagram(
                 secrets >> Edge(style="dotted") >> rds
             
             with Cluster("Streaming"):
-                msk = ManagedStreamingForApacheKafka(
+                # Using KinesisDataStreams as a placeholder for MSK
+                msk = KinesisDataStreams(
                     "MSK Cluster\n" +
                     "kafka.t3.small x2\n" +
                     "IAM Auth"

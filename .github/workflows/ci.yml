@@ -23,7 +23,17 @@ jobs:
       - name: Terraform Format Check
         run: |
           cd terraform
-          terraform fmt -check -recursive
+          # Format all files
+          terraform fmt -recursive
+          # Check if any files were changed
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "The following files needed formatting:"
+            git diff --name-only
+            # Show the diff
+            git diff
+            echo "Run 'terraform fmt -recursive' locally to fix"
+            exit 1
+          fi
       
       - name: Terraform Init
         run: |
