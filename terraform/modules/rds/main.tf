@@ -50,10 +50,15 @@ resource "aws_db_parameter_group" "postgres" {
 }
 
 # RDS Postgres instance
+# Explicit DB identifier for predictable log group name
+locals {
+  db_identifier = "${var.name_prefix}-postgres-${var.random_suffix}"
+}
+
 # CloudWatch log group for RDS PostgreSQL logs
 # Pre-created to ensure it's managed by Terraform and deleted on destroy
 resource "aws_cloudwatch_log_group" "postgresql" {
-  name              = "/aws/rds/instance/${var.name_prefix}-postgres-${var.random_suffix}/postgresql"
+  name              = "/aws/rds/instance/${local.db_identifier}/postgresql"
   retention_in_days = 7
 
   tags = {
@@ -62,7 +67,7 @@ resource "aws_cloudwatch_log_group" "postgresql" {
 }
 
 resource "aws_db_instance" "postgres" {
-  identifier_prefix = "${var.name_prefix}-"
+  identifier = local.db_identifier
 
   engine         = "postgres"
   engine_version = "16"

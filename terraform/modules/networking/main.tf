@@ -377,6 +377,7 @@ resource "aws_iam_role_policy_attachment" "bastion_ssm" {
 
 # Allow bastion to create and describe Kafka topics
 # Used by seed.sh kafka-topics.sh --create, --describe, --list
+# and replay runbook kafka-consumer-groups.sh --reset-offsets
 resource "aws_iam_role_policy" "bastion_kafka" {
   name = "${var.name_prefix}-bastion-kafka"
   role = aws_iam_role.bastion.id
@@ -401,7 +402,10 @@ resource "aws_iam_role_policy" "bastion_kafka" {
           "kafka-cluster:ReadData",
           "kafka-cluster:WriteData"
         ]
-        Resource = "arn:aws:kafka:${var.region}:*:topic/${var.name_prefix}-*/*/control-iceberg"
+        Resource = [
+          "arn:aws:kafka:${var.region}:*:topic/${var.name_prefix}-*/*/control-iceberg",
+          "arn:aws:kafka:${var.region}:*:topic/${var.name_prefix}-*/*/${var.name_prefix}.public.*"
+        ]
       },
       {
         Effect = "Allow"
@@ -409,7 +413,11 @@ resource "aws_iam_role_policy" "bastion_kafka" {
           "kafka-cluster:DescribeGroup",
           "kafka-cluster:AlterGroup"
         ]
-        Resource = "arn:aws:kafka:${var.region}:*:group/${var.name_prefix}-*/*/*"
+        Resource = [
+          "arn:aws:kafka:${var.region}:*:group/${var.name_prefix}-*/*/*",
+          "arn:aws:kafka:${var.region}:*:group/${var.name_prefix}-*/*/connect-*",
+          "arn:aws:kafka:${var.region}:*:group/${var.name_prefix}-*/*/cg-control-*"
+        ]
       }
     ]
   })

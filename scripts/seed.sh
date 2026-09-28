@@ -217,20 +217,21 @@ if [ ! -x /opt/kafka/bin/kafka-topics.sh ] || [ ! -f /opt/kafka/libs/aws-msk-iam
     TEMP_DIR=$(mktemp -d)
     cd "$TEMP_DIR"
     
-    # Download Kafka with retry (try dlcdn first, fallback to archive)
-    KAFKA_VERSION="3.7.1"
+    # Download Kafka with retry (try dlcdn first for 4.x, fallback to archive)
+    KAFKA_VERSION="4.3.1"
     KAFKA_FILENAME="kafka_2.13-${KAFKA_VERSION}.tgz"
-    KAFKA_SHA512="78e985235d245ba9e2951a82e723a62b8aba8b74a2c8376f7271906af715a36de9142c446096f13fd4bff3a4c10f1d080eb924e91e2256ec2db779906fd6737d"
+    KAFKA_SHA512="c7d7b2318cb51aa0c61d3246a51c349210073c5c9b754947ef965a439f2f939e8600f204e134a75ac31faf3829c9370960ef7c6a9886c8a1dbf0339a21f4c54c"
     
-    echo "Downloading Kafka ${KAFKA_VERSION}..."
+    echo "Downloading Kafka ${KAFKA_VERSION} (requires Java 17, which is pre-installed)..."
     MAX_RETRIES=3
     RETRY_COUNT=0
     DOWNLOAD_SUCCESS=0
+    CURL_TIMEOUT=600  # 10 minutes per attempt
     
-    # Try dlcdn.apache.org first (faster CDN)
+    # Try dlcdn.apache.org first (faster CDN, hosts current releases)
     while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
         echo "  Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES: Trying dlcdn.apache.org..."
-        if curl -fsSL -m 1200 "https://dlcdn.apache.org/kafka/${KAFKA_VERSION}/${KAFKA_FILENAME}" -o kafka.tgz 2>/dev/null; then
+        if curl -fsSL -m $CURL_TIMEOUT "https://dlcdn.apache.org/kafka/${KAFKA_VERSION}/${KAFKA_FILENAME}" -o kafka.tgz 2>/dev/null; then
             echo "  Download complete from dlcdn.apache.org"
             DOWNLOAD_SUCCESS=1
             break
@@ -239,19 +240,19 @@ if [ ! -x /opt/kafka/bin/kafka-topics.sh ] || [ ! -f /opt/kafka/libs/aws-msk-iam
         [ $RETRY_COUNT -lt $MAX_RETRIES ] && sleep 5
     done
     
-    # Fallback to archive.apache.org (slower but has older releases)
+    # Fallback to downloads.apache.org (mirror selection, also fast)
     if [ $DOWNLOAD_SUCCESS -eq 0 ]; then
-        echo "  dlcdn.apache.org failed, trying archive.apache.org (may take 15-20 minutes)..."
+        echo "  dlcdn failed, trying downloads.apache.org..."
         RETRY_COUNT=0
-        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            echo "  Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES: Downloading..."
-            if curl -fsSL -m 1800 "https://archive.apache.org/dist/kafka/${KAFKA_VERSION}/${KAFKA_FILENAME}" -o kafka.tgz; then
-                echo "  Download complete from archive.apache.org"
+        while [ $RETRY_COUNT -lt 2 ]; do
+            echo "  Attempt $((RETRY_COUNT + 1))/2: Downloading..."
+            if curl -fsSL -m $CURL_TIMEOUT "https://downloads.apache.org/kafka/${KAFKA_VERSION}/${KAFKA_FILENAME}" -o kafka.tgz 2>/dev/null; then
+                echo "  Download complete from downloads.apache.org"
                 DOWNLOAD_SUCCESS=1
                 break
             fi
             RETRY_COUNT=$((RETRY_COUNT + 1))
-            [ $RETRY_COUNT -lt $MAX_RETRIES ] && sleep 5
+            [ $RETRY_COUNT -lt 2 ] && sleep 5
         done
     fi
     
@@ -363,7 +364,7 @@ KAFKA_SCRIPT="${KAFKA_SCRIPT//MSK_BOOTSTRAP_PLACEHOLDER/$MSK_BOOTSTRAP}"
 
 # Build SSM parameters JSON with python3 (safe from backslash-newline joining)
 SSM_PARAMS_FILE=$(mktemp)
-printf '%s' "$KAFKA_SCRIPT" | python3 -c 'import json,sys; print(json.dumps({"commands":[sys.stdin.read()],"executionTimeout":["1800"]}))' > "$SSM_PARAMS_FILE"
+printf '%s' "$KAFKA_SCRIPT" | python3 -c 'import json,sys; print(json.dumps({"commands":[sys.stdin.read()],"executionTimeout":["2400"]}))' > "$SSM_PARAMS_FILE"
 
 # Send command to bastion to create topic
 echo "Sending command to bastion..."
@@ -383,10 +384,10 @@ if [ -z "$COMMAND_ID" ]; then
 fi
 
 echo "Command ID: $COMMAND_ID"
-echo "Waiting for command to complete (up to 20 minutes for Kafka download)..."
+echo "Waiting for command to complete (up to 45 minutes for Kafka download)..."
 
 # Poll for command status using wall-clock time
-MAX_WAIT=1200
+MAX_WAIT=2700
 START_TIME=$(date +%s)
 ELAPSED=0
 while [ $ELAPSED -lt $MAX_WAIT ]; do
@@ -423,7 +424,10 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
         exit 1
     fi
     
-    echo -n "."
+    # Print progress every 30 seconds
+    if [ $((ELAPSED % 30)) -eq 0 ]; then
+        echo "  Still waiting... (${ELAPSED}s elapsed, status: $STATUS)"
+    fi
     sleep 5
     ELAPSED=$(($(date +%s) - START_TIME))
 done

@@ -44,7 +44,8 @@ resource "aws_iam_role_policy" "debezium_connector" {
         Action = [
           "kafka-cluster:Connect",
           "kafka-cluster:AlterCluster",
-          "kafka-cluster:DescribeCluster"
+          "kafka-cluster:DescribeCluster",
+          "kafka-cluster:WriteDataIdempotently"
         ]
         Resource = var.msk_cluster_arn
       },
@@ -57,7 +58,6 @@ resource "aws_iam_role_policy" "debezium_connector" {
           "kafka-cluster:DescribeTopic",
           "kafka-cluster:DescribeTopicDynamicConfiguration",
           "kafka-cluster:WriteData",
-          "kafka-cluster:WriteDataIdempotently",
           "kafka-cluster:ReadData"
         ]
         Resource = "arn:aws:kafka:${var.region}:${local.account_id}:topic/${local.cluster_name}/${local.cluster_uuid}/*"
@@ -166,7 +166,8 @@ resource "aws_iam_role_policy" "iceberg_connector" {
         Action = [
           "kafka-cluster:Connect",
           "kafka-cluster:AlterCluster",
-          "kafka-cluster:DescribeCluster"
+          "kafka-cluster:DescribeCluster",
+          "kafka-cluster:WriteDataIdempotently"
         ]
         Resource = var.msk_cluster_arn
       },
@@ -179,7 +180,6 @@ resource "aws_iam_role_policy" "iceberg_connector" {
           "kafka-cluster:DescribeTopic",
           "kafka-cluster:DescribeTopicDynamicConfiguration",
           "kafka-cluster:WriteData",
-          "kafka-cluster:WriteDataIdempotently",
           "kafka-cluster:ReadData"
         ]
         Resource = "arn:aws:kafka:${var.region}:${local.account_id}:topic/${local.cluster_name}/${local.cluster_uuid}/*"
