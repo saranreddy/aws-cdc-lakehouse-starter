@@ -64,7 +64,7 @@ for table in customers orders order_items; do
   aws athena start-query-execution \
     --query-string "DROP TABLE IF EXISTS ${DATABASE}.${table}" \
     --query-execution-context "Database=${DATABASE}" \
-    --result-configuration "OutputLocation=s3://$(terraform output -raw s3_bucket_name)/athena-results/" \
+    --result-configuration "OutputLocation=s3://$(terraform -chdir=terraform output -raw s3_bucket_name)/athena-results/" \
     --region "$REGION"
 done
 ```
@@ -98,11 +98,8 @@ aws ssm start-session --target "$BASTION_ID" --region "$REGION"
 # On bastion:
 /opt/kafka/bin/kafka-consumer-groups.sh \
   --bootstrap-server "$MSK_BOOTSTRAP" \
-  --command-config /tmp/client.properties \
-  --list \
-  --cluster-arn "$MSK_CLUSTER_ARN" \
-  --region "$REGION" \
-  --output json | jq '.consumerGroupSummaries[] | select(.consumerGroupName | contains("iceberg"))'
+  --command-config /opt/kafka/client.properties \
+  --list
 ```
 
 Reset via bastion using Kafka CLI:
@@ -156,9 +153,11 @@ Exit the SSM session.
 Re-run the connector Terraform:
 
 ```bash
-cd terraform
-make apply-connectors  # Or: cd terraform && terraform apply -var enable_connectors=true=module.msk_connect.aws_mskconnect_connector.iceberg_sink
-cd ..
+# From repo root
+make apply-connectors AUTO_APPROVE=1
+
+# Or run terraform directly
+terraform -chdir=terraform apply -target=module.msk_connect -auto-approve
 ```
 
 Or recreate via `make apply-connectors`.
@@ -246,8 +245,7 @@ The bastion IAM role has `kafka-cluster:DescribeGroup` and `kafka-cluster:AlterG
 ### Connector stuck in CREATING
 
 If the connector gets stuck during recreation, check CloudWatch logs:
-```bash
-Check connector logs:
+
 ```bash
 # CLI v1 compatible
 aws logs filter-log-events \

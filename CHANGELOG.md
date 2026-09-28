@@ -54,13 +54,13 @@ Initial release of AWS CDC Lakehouse Starter. This is a **learning reference** d
 - **Documentation**:
   - Architecture diagram (generated PNG via `diagrams` library)
   - Honest README with MSK Serverless rationale, cost analysis, limitations, and "when not to use"
-  - Cost analysis: ~$1.17-1.20/hr estimated (verified 2026-09-28 pricing)
+  - Cost analysis: ~$1.21-1.24/hr (2026-09-28 pricing)
   - Connector version compatibility notes
 
 - **Helper scripts**:
   - `seed.sh`: Database seeding (idempotent) + control topic creation via SSM send-command
   - `doctor.sh`: Pre-flight checks (tools, quotas, costs)
-  - `smoke.sh`: End-to-end testing (insert/update/delete with end-to-end testing)
+  - `smoke.sh`: Inserts, updates, and deletes rows in Postgres, polls Athena until the changes appear, and reports the elapsed time
   - `load_generator.py`: Load generator (configurable rate)
   - `verify-clean.sh`: Post-destroy verification (checks for remaining billable resources)
 
@@ -92,15 +92,14 @@ Initial release of AWS CDC Lakehouse Starter. This is a **learning reference** d
 - MSK Connect 3.7.x runtime uses Java 17
 - Debezium 2.7.3 (Java 11+) compatible with Java 17 (not yet live-tested)
 - Debezium 3.x (Java 17+) would be version-aligned but not tested in this starter
-- Conservative choice: 2.7.3 is widely deployed and widely deployed (not yet field-tested here)
+- Chosen as the latest 2.7.x release, compatible with MSK Connect's Kafka Connect 3.7
 
 **Tabular Iceberg 0.6.19**:
-- Last stable stable release from Tabular
+- Final release of the Tabular connector
 - Repository deprecated in favor of Apache Iceberg's official connector
-- Tested in other deployments with Debezium integration
 
 **VPC Interface Endpoints over NAT Gateway**:
-- 8 endpoints × 2 AZs × $0.01/hr = $0.12/hr
+- 8 endpoints × 2 AZs × $0.01/hr = $0.16/hr
 - vs NAT Gateway $0.045/hr + data transfer
 - Simpler architecture for short tests; for long-running production evaluate NAT Gateway + fewer endpoints
 
@@ -121,16 +120,16 @@ Initial release of AWS CDC Lakehouse Starter. This is a **learning reference** d
 - **No HA/DR**: Single-region, no automated failover
 - **Replication slot timeout**: `wal_sender_timeout=0` (no auto-drop; requires manual monitoring)
 
-### Pricing (us-east-1, verified 2026-09-28)
+### Pricing (us-east-1, 2026-09-28)
 
 - MSK Serverless: $0.75/cluster-hr + $0.0015/partition-hr (15 partitions = $0.023/hr)
 - MSK Connect: 2 MCU-hrs = $0.22/hr
 - RDS db.t4g.micro: $0.016/hr
 - RDS storage (20 GB gp3): $0.003/hr
 - EC2 t3.micro bastion: $0.010/hr
-- VPC Interface endpoints (8 × 2 AZs): $0.12/hr
+- VPC Interface endpoints (8 × 2 AZs): $0.16/hr
 - Public IPv4: $0.005/hr
-- **Total: ~$1.17-1.20/hr estimated**
+- **Total: ~$1.21-1.24/hr**
 
 ### References
 

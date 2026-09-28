@@ -10,8 +10,8 @@ variable "name_prefix" {
   default     = "cdc-lakehouse"
 
   validation {
-    condition     = can(regex("^[a-z0-9-]+$", var.name_prefix)) && length(var.name_prefix) <= 20
-    error_message = "name_prefix must be lowercase alphanumeric with hyphens, max 20 chars"
+    condition     = can(regex("^[a-z][a-z0-9-]*[a-z0-9]$", var.name_prefix)) && length(var.name_prefix) <= 20
+    error_message = "name_prefix must start with a letter, contain only lowercase letters/numbers/hyphens, not end with hyphen, max 20 chars"
   }
 }
 

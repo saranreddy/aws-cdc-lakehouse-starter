@@ -277,20 +277,19 @@ if [ ! -x /opt/kafka/bin/kafka-topics.sh ] || [ ! -f /opt/kafka/libs/aws-msk-iam
     tar -xzf kafka.tgz
     
     # Install aws-msk-iam-auth (try GitHub releases, fallback to Maven Central)
-    IAM_AUTH_VERSION="1.1.9"
     IAM_AUTH_SHA256="16b3fbb2fbc7f0a5e60f2b8152b85c4892ed2459595a6400bc29126d98dcdf78"
     
-    echo "Downloading aws-msk-iam-auth ${IAM_AUTH_VERSION}..."
+    echo "Downloading aws-msk-iam-auth ${AWS_MSK_IAM_AUTH_VERSION}..."
     DOWNLOAD_SUCCESS=0
     
-    # Try GitHub releases first
-    if curl -fsSL "https://github.com/aws/aws-msk-iam-auth/releases/download/v${IAM_AUTH_VERSION}/aws-msk-iam-auth-${IAM_AUTH_VERSION}-all.jar" -o aws-msk-iam-auth.jar 2>/dev/null; then
+    # Try GitHub releases first (connect timeout 20s, max time 120s)
+    if curl --connect-timeout 20 -m 120 -fsSL "https://github.com/aws/aws-msk-iam-auth/releases/download/v${AWS_MSK_IAM_AUTH_VERSION}/aws-msk-iam-auth-${AWS_MSK_IAM_AUTH_VERSION}-all.jar" -o aws-msk-iam-auth.jar 2>/dev/null; then
         echo "  Downloaded from GitHub releases"
         DOWNLOAD_SUCCESS=1
     else
-        # Fallback to Maven Central
+        # Fallback to Maven Central (connect timeout 20s, max time 120s)
         echo "  GitHub failed, trying Maven Central..."
-        if curl -fsSL "https://repo1.maven.org/maven2/software/amazon/msk/aws-msk-iam-auth/${IAM_AUTH_VERSION}/aws-msk-iam-auth-${IAM_AUTH_VERSION}-all.jar" -o aws-msk-iam-auth.jar; then
+        if curl --connect-timeout 20 -m 120 -fsSL "https://repo1.maven.org/maven2/software/amazon/msk/aws-msk-iam-auth/${AWS_MSK_IAM_AUTH_VERSION}/aws-msk-iam-auth-${AWS_MSK_IAM_AUTH_VERSION}-all.jar" -o aws-msk-iam-auth.jar; then
             echo "  Downloaded from Maven Central"
             DOWNLOAD_SUCCESS=1
         fi

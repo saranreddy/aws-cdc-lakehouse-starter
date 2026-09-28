@@ -79,5 +79,5 @@ output "region" {
 }
 output "iceberg_connector_arn" {
   description = "Iceberg connector ARN"
-  value       = try(module.msk_connect.iceberg_connector_arn, null)
+  value       = var.enable_connectors ? module.msk_connect[0].iceberg_connector_arn : null
 }

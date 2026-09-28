@@ -179,6 +179,10 @@ jobs:
           bash --version
           # macOS uses bash 3.2 by default
       
+      - name: Test verify-clean.sh on macOS (bash 3.2)
+        run: |
+          bash tests/test_verify_clean.sh
+      
       - name: Syntax check scripts
         run: |
           for script in scripts/*.sh; do

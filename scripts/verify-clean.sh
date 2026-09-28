@@ -7,7 +7,7 @@ echo ""
 # Get region with proper validation and fallback to us-east-1
 REGION=""
 if [ -d "terraform" ] && [ -f "terraform/terraform.tfstate" ]; then
-    REGION=$(cd terraform && terraform output -raw region 2>/dev/null || true)
+    REGION=$(cd terraform && terraform output -no-color -raw region 2>/dev/null || true)
 fi
 
 # Validate region format
@@ -376,10 +376,15 @@ fi
 
 # Check RDS-managed secrets by tag or description
 echo -n "Checking RDS-managed secrets... "
+RDS_SECRETS=""
+
+# First, check if we had a DB identifier from the earlier check
 if [ -n "$DB_IDENTIFIER" ]; then
     # Try tag-based lookup first
     if aws_check "aws secretsmanager list-secrets --region '$REGION' --filters Key=tag-key,Values=aws:rds:primaryDBInstanceArn --query \"SecretList[?contains(to_string(Tags), '$DB_IDENTIFIER')].Name\" --output text"; then
-        RDS_SECRETS="$OUTPUT"
+        if [ -n "$OUTPUT" ] && [ "$OUTPUT" != "None" ]; then
+            RDS_SECRETS="$OUTPUT"
+        fi
     else
         exit 1
     fi
@@ -392,17 +397,38 @@ if [ -n "$DB_IDENTIFIER" ]; then
     else
         exit 1
     fi
-    
-    # Deduplicate and report
-    RDS_SECRETS=$(echo "$RDS_SECRETS" | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/ $//')
-    if [ -n "$RDS_SECRETS" ] && [ "$RDS_SECRETS" != "None" ]; then
-        echo "FOUND: $RDS_SECRETS"
-        ISSUES=$((ISSUES + 1))
+fi
+
+# Also search directly for rds!db- secrets with the prefix in their primaryDBInstanceArn tag
+if aws_check "aws secretsmanager list-secrets --region '$REGION' --filters Key=tag-key,Values=aws:rds:primaryDBInstanceArn --query \"SecretList[?starts_with(Name, 'rds!db-') && contains(to_string(Tags), '$NAME_PREFIX')].{Name:Name,Deleted:DeletedDate}\" --output json"; then
+    if [ -n "$OUTPUT" ] && [ "$OUTPUT" != "[]" ] && [ "$OUTPUT" != "None" ]; then
+        # Parse JSON to separate active vs pending deletion
+        ACTIVE_SECRETS=$(echo "$OUTPUT" | grep -o '"Name":[^,}]*' | cut -d'"' -f4 | grep -v '^$' || true)
+        DELETED_SECRETS=$(echo "$OUTPUT" | grep '"Deleted"' | grep -o '"Name":[^,}]*' | cut -d'"' -f4 | grep -v '^$' || true)
+        
+        if [ -n "$ACTIVE_SECRETS" ]; then
+            RDS_SECRETS="$RDS_SECRETS $ACTIVE_SECRETS"
+        fi
+        
+        if [ -n "$DELETED_SECRETS" ]; then
+            echo "NOTE: Found RDS secrets scheduled for deletion (not counted as failure): $DELETED_SECRETS"
+        fi
+    fi
+else
+    exit 1
+fi
+
+# Deduplicate and report
+RDS_SECRETS=$(echo "$RDS_SECRETS" | tr ' ' '\n' | sort -u | grep -v '^$' | tr '\n' ' ' | sed 's/ $//' || true)
+if [ -n "$RDS_SECRETS" ]; then
+    echo "FOUND: $RDS_SECRETS"
+    ISSUES=$((ISSUES + 1))
+else
+    if [ -z "$DB_IDENTIFIER" ] && [ -z "$ACTIVE_SECRETS" ]; then
+        echo "SKIPPED (no DB identifier and no matching secrets)"
     else
         echo "OK"
     fi
-else
-    echo "SKIPPED (no DB identifier)"
 fi
 
 echo ""

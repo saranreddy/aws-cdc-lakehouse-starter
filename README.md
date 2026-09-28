@@ -72,7 +72,7 @@ This is v0.1.0—a solid foundation, not a complete production system.
 
 ### Why MSK Serverless?
 
-**MSK Connect DOES support MSK Serverless** ([AWS MSK Connect documentation](https://docs.aws.amazon.com/msk/latest/developerguide/msk-connect.html), verified 2026-09-28).
+**MSK Connect DOES support MSK Serverless** ([AWS MSK Connect documentation](https://docs.aws.amazon.com/msk/latest/developerguide/msk-connect.html), 2026-09-28).
 
 MSK Serverless provides:
 - **No broker management**: Auto-scaling capacity, no instance types to choose
@@ -92,7 +92,7 @@ For production, evaluate provisioned MSK if you need:
 
 ### Why pgoutput Instead of wal2json or decoderbufs?
 
-The `pgoutput` logical decoding plugin is **built into Postgres 10+** and does not require installing extensions in RDS. It is Debezium's recommended plugin for RDS Postgres ([Debezium Postgres docs](https://debezium.io/documentation/reference/stable/connectors/postgresql.html), verified 2026-09-28).
+The `pgoutput` logical decoding plugin is **built into Postgres 10+** and does not require installing extensions in RDS. It is Debezium's recommended plugin for RDS Postgres ([Debezium Postgres docs](https://debezium.io/documentation/reference/stable/connectors/postgresql.html), 2026-09-28).
 
 ### Why MSK Connect Instead of Self-Hosted Kafka Connect?
 
@@ -104,9 +104,9 @@ Iceberg v2 supports **row-level deletes and updates** via delete files, which th
 
 ### Why Debezium 2.7.3 and Tabular Iceberg 0.6.19?
 
-**MSK Connect runtime 3.7.x uses Kafka 3.7.x and Java 17** ([AWS MSK Connect runtimes](https://docs.aws.amazon.com/msk/latest/developerguide/msk-connect-workers.html), verified 2026-09-28). The Debezium 3.x series targets Java 17+ and Kafka Connect 3.x, so technically Debezium 3.x should work. However, this starter uses:
+**MSK Connect runtime 3.7.x uses Kafka 3.7.x and Java 17** ([AWS MSK Connect runtimes](https://docs.aws.amazon.com/msk/latest/developerguide/msk-connect-workers.html), 2026-09-28). The Debezium 3.x series targets Java 17+ and Kafka Connect 3.x, so technically Debezium 3.x should work. However, this starter uses:
 
-- **Debezium 2.7.3.Final**: Latest 2.7.x release, widely deployed, stable with Postgres connector on Java 11+ and Kafka Connect 2.x/3.x
+- **Debezium 2.7.3.Final**: Latest 2.7.x release, stable with Postgres connector on Java 11+ and Kafka Connect 2.x/3.x
 - **Tabular Iceberg 0.6.19**: Last stable release from Tabular before the repository was deprecated in favor of Apache Iceberg's official connector (not yet field-tested for this stack)
 
 **Honest rationale**: Debezium 2.7.3 is a conservative choice. Debezium 3.x would likely work but hasn't been tested in this starter. For production, evaluate Debezium 3.x or the Apache Iceberg Kafka Connect project.
@@ -295,7 +295,7 @@ See `docs/runbooks/` for operational procedures:
 
 **aws-samples/msk-config-providers 0.4.0**:
 - URL: `https://github.com/aws-samples/msk-config-providers/releases/download/r0.4.0/msk-config-providers-0.4.0-all.jar`
-- SHA256: `45dc671c2cec8412c436371abddff644598d00035a73487ab6db191db3563911` (verified)
+- SHA256: `45dc671c2cec8412c436371abddff644598d00035a73487ab6db191db3563911`
 - Class: `com.amazonaws.kafka.config.providers.SecretsManagerConfigProvider`
 - Syntax: `${secretsmanager:secret-name:key}`
 
