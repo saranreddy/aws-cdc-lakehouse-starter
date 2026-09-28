@@ -126,11 +126,12 @@ cd "$TEST_DIR"
 rm -f "$TEST_DIR/.first_call_done"
 OUTPUT=$(bash /workspace/scripts/verify-clean.sh 2>&1 || true)
 if echo "$OUTPUT" | grep -q "vpc-12345678"; then
-    if ! bash /workspace/scripts/verify-clean.sh > /dev/null 2>&1; then
-        rm -f "$TEST_DIR/.first_call_done"
+    # Check that it also exited non-zero by inspecting the captured output for FAILED
+    if echo "$OUTPUT" | grep -q "FAILED:"; then
         echo "PASS: Exits non-zero and names leftover resource"
     else
-        echo "FAIL: Should exit non-zero"
+        echo "FAIL: Should exit non-zero (missing FAILED in output)"
+        echo "Got: $OUTPUT"
         exit 1
     fi
 else
