@@ -1,6 +1,13 @@
 #!/bin/bash
 set -e
 
+echo "=== Pre-seed: Creating Kafka Topics ==="
+./scripts/create-topics.sh || {
+    echo "Warning: Topic creation failed. Continuing with seed..."
+    echo "Topics may already exist or will be auto-created by connectors."
+}
+
+echo ""
 echo "=== Seeding Database ==="
 echo ""
 
