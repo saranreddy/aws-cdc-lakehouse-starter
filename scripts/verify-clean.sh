@@ -50,14 +50,16 @@ ISSUES=0
 aws_check() {
     local cmd="$1"
     local errf
+    local rc
     errf=$(mktemp)
     
-    if OUTPUT=$(eval "$cmd" 2>"$errf"); then
-        local rc=$?
+    OUTPUT=$(eval "$cmd" 2>"$errf")
+    rc=$?
+    
+    if [ $rc -eq 0 ]; then
         rm -f "$errf"
-        return $rc
+        return 0
     else
-        local rc=$?
         echo "ERROR: AWS CLI failed (exit $rc)"
         echo "  Command: $cmd"
         if [ -s "$errf" ]; then
