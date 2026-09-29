@@ -204,12 +204,12 @@ resource "terraform_data" "debezium_config_hash" {
 
 resource "terraform_data" "iceberg_config_hash" {
   input = sha256(jsonencode({
-    connector_class             = "io.tabular.iceberg.connect.IcebergSinkConnector"
-    topics                      = "${var.name_prefix}.public.customers,${var.name_prefix}.public.orders,${var.name_prefix}.public.order_items"
-    iceberg_control_topic       = "control-iceberg"
-    iceberg_catalog_warehouse   = "s3://${var.s3_bucket_name}/iceberg/"
-    glue_database_name          = var.glue_database_name
-    msk_bootstrap_brokers       = var.msk_bootstrap_brokers
+    connector_class           = "io.tabular.iceberg.connect.IcebergSinkConnector"
+    topics                    = "${var.name_prefix}.public.customers,${var.name_prefix}.public.orders,${var.name_prefix}.public.order_items"
+    iceberg_control_topic     = "control-iceberg"
+    iceberg_catalog_warehouse = "s3://${var.s3_bucket_name}/iceberg/"
+    glue_database_name        = var.glue_database_name
+    msk_bootstrap_brokers     = var.msk_bootstrap_brokers
   }))
 }
 
