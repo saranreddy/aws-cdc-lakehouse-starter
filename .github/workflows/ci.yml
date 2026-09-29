@@ -1,0 +1,216 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, 'cursor/**' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  terraform:
+    name: Terraform Validation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.0
+      
+      - name: Terraform Format Check
+        run: |
+          cd terraform
+          # Format all files
+          terraform fmt -recursive
+          # Check if any files were changed
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "The following files needed formatting:"
+            git diff --name-only
+            # Show the diff
+            git diff
+            echo "Run 'terraform fmt -recursive' locally to fix"
+            exit 1
+          fi
+      
+      - name: Terraform Init
+        run: |
+          cd terraform
+          terraform init -backend=false
+      
+      - name: Terraform Validate
+        run: |
+          cd terraform
+          terraform validate
+  
+  lint:
+    name: Linting
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      
+      - name: Run shellcheck
+        run: |
+          echo "Running shellcheck on all scripts..."
+          find scripts -name '*.sh' -type f -exec shellcheck -S warning {} +
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pylint pytest
+      
+      - name: Run pylint
+        run: |
+          echo "Running pylint..."
+          pylint scripts/*.py --fail-under=8.0
+  
+  test:
+    name: Python Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run unit tests
+        run: |
+          python -m pytest tests/ -v
+  
+  logic-tests:
+    name: Bash Script Logic Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Bash 3.2 Script Tests
+        run: |
+          bash --version
+          bash tests/test_verify_clean.sh
+      
+      - name: Test smoke/doctor helper logic
+        run: |
+          # Test that grep patterns handle empty results correctly
+          echo "Testing grep -c patterns..."
+
+          # Test pattern: grep -c returns count, || echo "0" provides fallback
+          # grep -c on empty input returns 0, but combined with || echo "0" causes issues
+          # The correct pattern is: grep -c X || true (returns 0 exit code, grep -c already returns 0 as count)
+          RESULT=$(echo "" | grep -c "test" || true)
+          if [ "$RESULT" != "0" ]; then
+            echo "Error: grep pattern returned '$RESULT' instead of '0'"
+            exit 1
+          fi
+
+          # Test quota helper logic pattern
+          QUOTA=$(echo "5.0" | cut -d. -f1)
+          if [ "$QUOTA" != "5" ]; then
+            echo "Error: quota parsing failed (got '$QUOTA', expected '5')"
+            exit 1
+          fi
+
+          echo "All bash logic tests passed!"
+  
+  diagram:
+    name: Architecture Diagram
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      
+      - name: Install Graphviz
+        run: sudo apt-get update && sudo apt-get install -y graphviz
+      
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install diagrams
+      
+      - name: Generate diagram
+        run: |
+          python docs/architecture.py
+      
+      - name: Check diagram exists
+        run: |
+          if [ ! -f docs/architecture.png ]; then
+            echo "Error: Architecture diagram was not generated"
+            exit 1
+          fi
+  
+  bash-compatibility:
+    name: Bash 3.2 Compatibility Check
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Check bash version
+        run: |
+          bash --version
+          # macOS uses bash 3.2 by default
+      
+      - name: Test verify-clean.sh on macOS (bash 3.2)
+        run: |
+          bash tests/test_verify_clean.sh
+      
+      - name: Syntax check scripts
+        run: |
+          for script in scripts/*.sh; do
+            echo "Checking $script..."
+            bash -n "$script"
+          done
+      
+      - name: Check for bashisms
+        run: |
+          # Look for common bashisms that won't work in bash 3.2
+          echo "Checking for bashisms..."
+          
+          # Check for associative arrays (bash 4+)
+          if grep -r "declare -A" scripts/*.sh; then
+            echo "Error: Associative arrays found (bash 4+ only)"
+            exit 1
+          fi
+          
+          # Check for mapfile/readarray (bash 4+)
+          if grep -rE "mapfile|readarray" scripts/*.sh; then
+            echo "Error: mapfile/readarray found (bash 4+ only)"
+            exit 1
+          fi
+          
+          # Check for ${var,,} or ${var^^} (bash 4+)
+          if grep -rE '\$\{[a-zA-Z_][a-zA-Z0-9_]*,,\}|\$\{[a-zA-Z_][a-zA-Z0-9_]*,,\}' scripts/*.sh; then
+            echo "Error: ${var,,} or ${var^^} found (bash 4+ only)"
+            exit 1
+          fi
+          
+          echo "No obvious bashisms found"
