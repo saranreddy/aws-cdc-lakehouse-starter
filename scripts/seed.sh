@@ -278,6 +278,7 @@ if [ ! -x /opt/kafka/bin/kafka-topics.sh ] || [ ! -f /opt/kafka/libs/aws-msk-iam
     tar -xzf kafka.tgz
     
     # Install aws-msk-iam-auth (try GitHub releases, fallback to Maven Central)
+    AWS_MSK_IAM_AUTH_VERSION="2.2.0"
     IAM_AUTH_SHA256="16b3fbb2fbc7f0a5e60f2b8152b85c4892ed2459595a6400bc29126d98dcdf78"
     
     echo "Downloading aws-msk-iam-auth ${AWS_MSK_IAM_AUTH_VERSION}..."

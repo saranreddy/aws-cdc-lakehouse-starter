@@ -4,7 +4,7 @@ This runbook covers monitoring and managing Debezium's PostgreSQL replication sl
 
 ## Overview
 
-Debezium creates a **logical replication slot** named `debezium_slot` in RDS Postgres. This slot:
+Debezium creates a **logical replication slot** named `cdc_lakehouse_slot` in RDS Postgres. This slot:
 - Tracks the position of the CDC consumer in the Write-Ahead Log (WAL)
 - Ensures WAL segments are retained until Debezium consumes them
 - Prevents WAL data loss if Debezium temporarily stops
@@ -28,7 +28,7 @@ FROM pg_replication_slots;
 ```
 
 **Columns**:
-- `slot_name`: `debezium_slot`
+- `slot_name`: `cdc_lakehouse_slot`
 - `active`: `t` (true) if Debezium is connected, `f` (false) if not
 - `restart_lsn`: WAL position the slot is holding
 - `confirmed_flush_lsn`: Last position confirmed by Debezium
@@ -151,7 +151,7 @@ FROM pg_ls_waldir();
 -- Stop Debezium connector first (to prevent it from recreating the slot)
 
 -- Drop the slot
-SELECT pg_drop_replication_slot('debezium_slot');
+SELECT pg_drop_replication_slot('cdc_lakehouse_slot');
 ```
 
 **Warning**: Dropping the slot **loses the CDC position**. When you restart Debezium:
@@ -165,7 +165,7 @@ SELECT pg_drop_replication_slot('debezium_slot');
 SELECT * FROM pg_replication_slots;
 ```
 
-Should return no rows (or no row for `debezium_slot`).
+Should return no rows (or no row for `cdc_lakehouse_slot`).
 
 ## Preventing WAL Growth
 
@@ -229,7 +229,7 @@ If you've run `terraform destroy` or manually deleted the Debezium connector:
 2. Drop the replication slot:
 
 ```sql
-SELECT pg_drop_replication_slot('debezium_slot');
+SELECT pg_drop_replication_slot('cdc_lakehouse_slot');
 ```
 
 3. Verify WAL is recycled:

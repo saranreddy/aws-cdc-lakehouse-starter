@@ -27,8 +27,8 @@ RDS_USER=$(terraform output -raw rds_master_username)
 SECRET_ARN=$(terraform output -raw rds_secret_arn)
 cd ..
 
-# Get password
-export PGPASSWORD=$(aws secretsmanager get-secret-value --secret-id "$SECRET_ARN" --query SecretString --output text | grep -o '"password":"[^"]*' | cut -d'"' -f4)
+# Get password (CLI v1 compatible, safe JSON parsing)
+export PGPASSWORD=$(aws secretsmanager get-secret-value --secret-id "$SECRET_ARN" --query SecretString --output text | python3 -c "import sys, json; print(json.loads(input())['password'])")
 
 # Start tunnel
 aws ssm start-session \

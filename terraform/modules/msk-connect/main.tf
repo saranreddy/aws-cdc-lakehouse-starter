@@ -1,6 +1,6 @@
 # MSK Connect Connectors for CDC Pipeline
-# Runtime: Kafka Connect 3.7.1 (Java 11)
-# Debezium 2.7.3.Final (Java 11+ compatible)
+# Runtime: MSK Connect 3.7.x (Kafka 3.7.x, Java 17)
+# Debezium 2.7.3.Final (Java 11+ compatible, runs on Java 17)
 # Tabular Iceberg Kafka Connect 0.6.19
 
 # Fetch and upload Debezium connector plugin
@@ -199,6 +199,17 @@ resource "terraform_data" "debezium_config_hash" {
     publication_name    = "cdc_publication"
     time_precision_mode = "connect"
     table_include_list  = "public.customers,public.orders,public.order_items"
+  }))
+}
+
+resource "terraform_data" "iceberg_config_hash" {
+  input = sha256(jsonencode({
+    connector_class             = "io.tabular.iceberg.connect.IcebergSinkConnector"
+    topics                      = "${var.name_prefix}.public.customers,${var.name_prefix}.public.orders,${var.name_prefix}.public.order_items"
+    iceberg_control_topic       = "control-iceberg"
+    iceberg_catalog_warehouse   = "s3://${var.s3_bucket_name}/iceberg/"
+    glue_database_name          = var.glue_database_name
+    msk_bootstrap_brokers       = var.msk_bootstrap_brokers
   }))
 }
 
@@ -437,8 +448,7 @@ resource "aws_mskconnect_connector" "iceberg_sink" {
   lifecycle {
     replace_triggered_by = [
       terraform_data.iceberg_config_hash,
-      aws_mskconnect_custom_plugin.iceberg.id,
-      aws_mskconnect_worker_configuration.iceberg.id
+      aws_mskconnect_custom_plugin.iceberg.id
     ]
   }
 }
